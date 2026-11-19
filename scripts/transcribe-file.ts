@@ -8,7 +8,7 @@
  *   --meeting <id>   寫回既有會議（每 30 分鐘一個段落）
  *   --replace        會議已有逐字稿時覆蓋
  *   --model <id>     覆蓋設定的 Gemini 轉錄模型
- *   --chunk-min <n>  每段幾分鐘（預設 30，最少 5）
+ *   --chunk-min <n>  每段幾分鐘（預設 15，最少 5）
  *   --out <path>     沒有 --meeting 時，逐字稿要寫到哪
  *
  * 超過 --chunk-min 的錄音會先用 ffmpeg 真的切成獨立檔案再逐段轉錄。
@@ -27,11 +27,13 @@ import {
   findReusableFile,
   mediaDurationSec,
   modelLimits,
+  TranscriptTooLongError,
   transcribeUploadedFile,
   uploadLocalFile,
   waitUntilActive,
   type GeminiFile,
 } from '../server/gemini-file.ts';
+import { cutRunawayRepeat } from '../server/transcript-guard.ts';
 import { meetingDir, readMeeting, saveMeeting, writeNotes, writeTranscript } from '../server/store.ts';
 
 interface Flags {
@@ -78,7 +80,7 @@ async function main(): Promise<void> {
   const { file, flags } = parseArgs(process.argv.slice(2));
   if (!file) {
     log(
-      '用法：node scripts/transcribe-file.ts <音檔> [--meeting <id>] [--out <path>] [--model <id>] [--chunk-min 30] [--replace]',
+      '用法：node scripts/transcribe-file.ts <音檔> [--meeting <id>] [--out <path>] [--model <id>] [--chunk-min 15] [--replace]',
     );
     process.exitCode = 2;
     return;
@@ -94,7 +96,7 @@ async function main(): Promise<void> {
 
   const started = Date.now();
   const durationSec = mediaDurationSec(await readFile(file));
-  const chunkSec = Math.max(300, Math.round((flags.chunkMin ?? 30) * 60));
+  const chunkSec = Math.max(300, Math.round((flags.chunkMin ?? 15) * 60));
   const needsSplit = durationSec !== null && durationSec > chunkSec;
 
   let tempDir: string | null = null;
@@ -121,38 +123,45 @@ async function main(): Promise<void> {
   log(`[3/5] 逐段轉錄（${model}，${chunks.length} 段）…`);
 
   const done: { text: string; chunk: Chunk; requestId: string }[] = [];
-  for (let i = 0; i < chunks.length; i += 1) {
-    const chunk = chunks[i] as Chunk;
-    const label = needsSplit
-      ? `${formatDuration(chunk.startSec)}–${formatDuration(chunk.startSec + chunk.durationSec)}`
-      : '整場';
-    log(`      第 ${i + 1}/${chunks.length} 段（${label}）`);
+  /** 太短的段落再切就沒有意義，遇到鬼打牆只能截掉 */
+  const MIN_RETRY_SEC = 300;
+  const retryDirs: string[] = [];
+
+  async function saveCheckpoint(): Promise<void> {
+    await writeFile(checkpoint, `${done.map((d) => d.text).join('\n\n')}\n`, 'utf8');
+  }
+
+  /** 上傳一段（可沿用 48 小時內的同名檔案）並轉錄 */
+  async function transcribeOnce(chunk: Chunk): Promise<{ text: string; requestId: string; truncated: boolean }> {
+    const size = (await stat(chunk.path)).size;
+    const reused = await findReusableFile(chunk.displayName, size, s.geminiApiKey);
+    let uploadedFile: GeminiFile;
+    if (reused) {
+      uploadedFile = reused;
+      log('      沿用 48 小時內上傳過的檔案，跳過上傳');
+    } else {
+      log(`      上傳中（${mb(size)}）…`);
+      const result = await uploadLocalFile(chunk.path, {
+        apiKey: s.geminiApiKey,
+        displayName: chunk.displayName,
+        onState: (state) => log(`      Files API 狀態：${state}`),
+      });
+      uploadedFile = result.file;
+      log(`      上傳完成：${mb(result.bytes)}`);
+    }
+
+    const ready = await waitUntilActive(uploadedFile, s.geminiApiKey, (state) => log(`      狀態：${state}`));
+    const tokens = await countFileTokens(ready, s.geminiApiKey, model);
+    if (tokens !== null) log(`      input token：${tokens.toLocaleString('en-US')}`);
+    if (tokens !== null && limits.input !== null && tokens > limits.input) {
+      throw new Error(
+        `這一段超過模型的 context 上限（${limits.input.toLocaleString('en-US')} tokens），請把 --chunk-min 調小。`,
+      );
+    }
+
+    let raw = '';
     try {
-      const size = (await stat(chunk.path)).size;
-      const reused = await findReusableFile(chunk.displayName, size, s.geminiApiKey);
-      let uploadedFile: GeminiFile;
-      if (reused) {
-        uploadedFile = reused;
-        log('      沿用 48 小時內上傳過的檔案，跳過上傳');
-      } else {
-        log(`      上傳中（${mb(size)}）…`);
-        const result = await uploadLocalFile(chunk.path, {
-          apiKey: s.geminiApiKey,
-          displayName: chunk.displayName,
-          onState: (state) => log(`      Files API 狀態：${state}`),
-        });
-        uploadedFile = result.file;
-        log(`      上傳完成：${mb(result.bytes)}`);
-      }
-
-      const ready = await waitUntilActive(uploadedFile, s.geminiApiKey, (state) => log(`      狀態：${state}`));
-      const tokens = await countFileTokens(ready, s.geminiApiKey, model);
-      if (tokens !== null) log(`      input token：${tokens.toLocaleString('en-US')}`);
-      if (tokens !== null && limits.input !== null && tokens > limits.input) {
-        throw new Error(`這一段超過模型的 context 上限（${limits.input.toLocaleString('en-US')} tokens），請把 --chunk-min 調小。`);
-      }
-
-      const text = await transcribeUploadedFile(ready, {
+      raw = await transcribeUploadedFile(ready, {
         apiKey: s.geminiApiKey,
         model,
         language: s.language,
@@ -160,17 +169,73 @@ async function main(): Promise<void> {
         onRetry: (attempt, waitMs, message) =>
           log(`      ${message.split('\n')[0]}，${Math.round(waitMs / 1000)} 秒後重試（第 ${attempt} 次）`),
       });
-      if (!text.trim()) {
-        log('      這一段沒有辨識到內容（可能是靜音或空白段落），跳過');
-      } else {
-        done.push({ text, chunk, requestId: ready.name });
+    } catch (err) {
+      // 撞到輸出上限時模型通常已經卡在重複句子裡，直接當成「這段要重跑」
+      if (err instanceof TranscriptTooLongError) {
+        log('      撞到輸出上限（模型卡住重複同一句）');
+        return { text: '', requestId: ready.name, truncated: true };
       }
-      await writeFile(checkpoint, `${done.map((d) => d.text).join('\n\n')}\n`, 'utf8');
-      const total = done.reduce((sum, d) => sum + d.text.length, 0);
-      log(`      完成：${text.length.toLocaleString('en-US')} 字（累計 ${total.toLocaleString('en-US')} 字）`);
+      throw err;
+    }
+
+    const guarded = cutRunawayRepeat(raw);
+    if (guarded.cut) {
+      log(`      偵測到尾端重複同一段 ${guarded.times} 次，先砍掉`);
+      return { text: guarded.text, requestId: ready.name, truncated: true };
+    }
+    return { text: raw, requestId: ready.name, truncated: false };
+  }
+
+  /** 一段轉錄失敗（重複／上限）就切成兩半重跑，最多遞迴三層 */
+  async function transcribeChunk(chunk: Chunk, depth: number): Promise<void> {
+    const result = await transcribeOnce(chunk);
+    if (!result.truncated) {
+      if (!result.text.trim()) {
+        log('      這一段沒有辨識到內容（可能是靜音或空白段落），跳過');
+        return;
+      }
+      done.push({ text: result.text, chunk, requestId: result.requestId });
+      await saveCheckpoint();
+      const totalChars = done.reduce((sum, d) => sum + d.text.length, 0);
+      log(`      完成：${result.text.length.toLocaleString('en-US')} 字（累計 ${totalChars.toLocaleString('en-US')} 字）`);
+      return;
+    }
+
+    const canRetry = chunk.durationSec >= MIN_RETRY_SEC && depth < 3;
+    if (!canRetry) {
+      log('      這段太短或已經切到底，保留砍掉重複後的內容（中間可能漏一小段）');
+      if (result.text.trim()) {
+        done.push({ text: result.text, chunk, requestId: result.requestId });
+        await saveCheckpoint();
+      }
+      return;
+    }
+
+    log(`      切成兩半重跑這一段（第 ${depth + 1} 次）…`);
+    const retryDir = path.join(os.tmpdir(), 'opencode', `retry-${depth}-${Date.now()}`);
+    mkdirSync(retryDir, { recursive: true });
+    retryDirs.push(retryDir);
+    const halves = await splitAudio(chunk.path, {
+      outDir: retryDir,
+      chunkSec: Math.ceil(chunk.durationSec / 2),
+      durationSec: chunk.durationSec,
+    });
+    for (const half of halves) {
+      await transcribeChunk({ ...half, startSec: chunk.startSec + half.startSec }, depth + 1);
+    }
+  }
+
+  for (let i = 0; i < chunks.length; i += 1) {
+    const chunk = chunks[i] as Chunk;
+    const label = needsSplit
+      ? `${formatDuration(chunk.startSec)}–${formatDuration(chunk.startSec + chunk.durationSec)}`
+      : '整場';
+    log(`      第 ${i + 1}/${chunks.length} 段（${label}）`);
+    try {
+      await transcribeChunk(chunk, 0);
     } catch (err) {
       // 保留已完成的段落與切好的檔案，方便重跑時比對
-      log(`      失敗，已完成的進度留在 ${checkpoint}`);
+      if (done.length) log(`      失敗，已完成的進度留在 ${checkpoint}`);
       if (tempDir) log(`      切好的段落留在 ${tempDir}`);
       throw err;
     }
@@ -231,6 +296,7 @@ async function main(): Promise<void> {
 
   log('[5/5] 清掉暫存的切段檔案');
   if (tempDir) await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  for (const dir of retryDirs) await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   log(`總共花了 ${Math.round((Date.now() - started) / 1000)} 秒。`);
 }
 

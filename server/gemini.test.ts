@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pcmToWav } from './gemini.ts';
+import { pcmToWav, cleanText } from './gemini.ts';
 
 test('pcmToWav 產生 16 kHz / 16-bit / mono 的 WAV 檔頭', () => {
   const pcm = Buffer.alloc(3200, 7); // 100 ms
@@ -28,4 +28,19 @@ test('pcmToWav 空音訊也能產生合法檔頭', () => {
   assert.equal(wav.length, 44);
   assert.equal(wav.readUInt32LE(40), 0);
   assert.equal(wav.readUInt32LE(4), 36);
+});
+
+test('cleanText 砍掉模型自己加的開場白', () => {
+  assert.equal(cleanText('好的，以下是該音訊的完整逐字稿：\n今天討論後台設定。'), '今天討論後台設定。');
+  assert.equal(cleanText('好的，以下是該段音訊的完整逐字稿：\n\n今天討論後台設定。'), '今天討論後台設定。');
+  assert.equal(cleanText('以下是逐字稿：今天討論後台設定。'), '今天討論後台設定。');
+});
+
+test('cleanText 不會砍到內文的「以下是」', () => {
+  const text = '今天討論後台設定。以下是我們要做的三件事。';
+  assert.equal(cleanText(text), text);
+});
+
+test('cleanText 去掉 code fence 後再砍開場白', () => {
+  assert.equal(cleanText('```text\n好的，以下是逐字稿：\n今天討論後台設定。\n```'), '今天討論後台設定。');
 });

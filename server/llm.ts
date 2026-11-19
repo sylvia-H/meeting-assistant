@@ -1,4 +1,5 @@
 import { llmKeyFor, llmKeySource, settings } from './config.ts';
+import { isDailyQuota } from './gemini.ts';
 
 export interface LlmResult {
   text: string;
@@ -12,6 +13,9 @@ function friendly(status: number, body: string): string {
   const snippet = body.slice(0, 400);
   if (status === 401 || status === 403) return `API key 無效或沒有權限（${status}）。請到設定頁確認。\n${snippet}`;
   if (status === 402) return `帳戶餘額不足（402）。請先儲值。\n${snippet}`;
+  if (status === 429 && isDailyQuota(body)) {
+    return `Gemini 免費層「今天」的額度用完了（每個模型每天 20 次）。太平洋時間午夜重置，急用請換付費 key。\n${snippet}`;
+  }
   if (status === 429) return `請求太頻繁或額度用完（429）。稍後再試。\n${snippet}`;
   return `LLM 回應 ${status}：${snippet}`;
 }
@@ -64,25 +68,37 @@ async function callOpenai(apiKey: string, model: string, system: string, user: s
 
 async function callGemini(apiKey: string, model: string, system: string, user: string): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  // gemini-3 系列預設會先「想」很久，思考的 token 也算在 maxOutputTokens 裡；
+  // 摘要不需要推理，關到 minimal 才不會吃掉輸出額度或拖到逾時。
+  const thinking =
+    model.startsWith('gemini-3') || model.startsWith('gemini-4')
+      ? { thinkingConfig: { thinkingLevel: 'minimal' } }
+      : {};
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: 'user', parts: [{ text: user }] }],
-      generationConfig: { maxOutputTokens: 8192, temperature: 0.3 },
+      generationConfig: { maxOutputTokens: 8192, temperature: 0.3, ...thinking },
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   const text = await res.text();
   if (!res.ok) throw new Error(friendly(res.status, text));
   const data = JSON.parse(text) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
   };
-  return (data.candidates?.[0]?.content?.parts ?? [])
+  const out = (data.candidates?.[0]?.content?.parts ?? [])
     .map((p) => p.text ?? '')
     .join('')
     .trim();
+  // 被截斷至少要看得出原因，不要讓使用者拿到一份悄悄斷掉的紀錄
+  if (!out) {
+    const reason = data.candidates?.[0]?.finishReason ?? '沒有回傳內容';
+    throw new Error(`Gemini 沒有產出會議紀錄（${reason}）。請再按一次，或換一個摘要模型。`);
+  }
+  return out;
 }
 
 const MOCK_MINUTES = `## TL;DR

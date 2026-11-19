@@ -92,8 +92,8 @@ npm start
 node scripts/transcribe-file.ts "C:\Users\me\Downloads\會議.m4a" --meeting 2026-11-18-1400-xxx
 ```
 
-- 檔案超過 30 分鐘會**先用 ffmpeg 真的切成每段 30 分鐘**，再逐段上傳轉錄
-  （用 `--chunk-min 20` 可以調短）。整場一次丟給 Gemini 會撞到輸出上限。
+- 檔案超過 15 分鐘會**先用 ffmpeg 真的切成每段 15 分鐘**，再逐段上傳轉錄
+  （用 `--chunk-min 10` 可以調更短）。整場一次丟給 Gemini 會撞到輸出上限。
 - 100 MB 以上的檔案走 Gemini **Files API**（上傳免費，檔案在 Google 保留 48 小時）。
   同一個檔案重跑第二次會自動沿用已上傳的版本，不會再傳一次。
 - 逐字稿寫回 `meetings/<id>/transcript.md`，會議狀態設為「已結束」，逐字稿依時間段落分節。
@@ -109,8 +109,12 @@ winget install Gyan.FFmpeg                     # 裝完重開終端機
 # 或在 .env 指定 FFMPEG_PATH=C:\path\to\ffmpeg.exe
 ```
 
-長會議的實際數字（2 小時 m4a，112 MB）：切成 4 段各 30 分鐘，input 約 23 萬 tokens，
-用 `gemini-3.1-flash-lite` 一段約 30–60 秒。`gemini-3.5-flash-lite` 對這種大請求常常回 503。
+長會議的實際數字（2 小時 m4a，112 MB）：切成 8 段各 15 分鐘（`-c copy` 切完常常多一段幾十秒的尾巴），
+input 每段約 2.9 萬 tokens、輸出 3,000–5,000 字，整場約 5 分鐘跑完。
+**用 `gemini-3-flash-preview`**（預設）。實測其他模型的問題：`gemini-3.5-flash-lite` 對大請求常回 503；
+`gemini-3.1-flash-lite` 會卡在「重複同一句」直到撞輸出上限；`gemini-flash-latest` 品質好但光是
+五個字的回答就花 106 秒（預設思考太久，而且不吃 `thinkingLevel: minimal`）。
+程式偵測到尾端鬼打牆時，會砍掉重複並把該段切成兩半重跑（最多三層），所以偶爾會多花幾次請求。
 
 ## 打字筆記
 
@@ -189,6 +193,8 @@ tags:
 | LLM 摘要（Claude Sonnet） | 約 15–25k token 輸入 + 3k 輸出 | **$0.05–0.10** |
 
 只走 Gemini 免費轉錄＋免費層摘要，一場會議可以 **$0**，代價是每日次數與速度限制。
+免費層的每日上限是**每個模型分開算**（例如 `gemini-3-flash-preview` 一天 20 次），
+所以 2 小時會議（9 段＋重試）有機會當天用完；換一顆模型或等太平洋時間午夜重置即可。
 每天一場 45 分鐘會議、用 Typeless Pro＋Claude 摘要，一個月約 **$10–14**。
 
 ## 常見問題

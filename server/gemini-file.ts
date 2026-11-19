@@ -8,12 +8,15 @@
  * GEMINI_BASE_URL 只給測試覆蓋用。
  */
 import { readFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import path from 'node:path';
 import { DEFAULT_GEMINI_TRANSCRIBE_MODEL } from '../src/core/protocol.ts';
-import { cleanText, friendly, SYSTEM_PROMPT } from './gemini.ts';
+import { cleanText, friendly, isDailyQuota, SYSTEM_PROMPT } from './gemini.ts';
 
 const UPLOAD_TIMEOUT_MS = 30 * 60_000;
-const GENERATE_TIMEOUT_MS = 15 * 60_000;
+/** 生成時的「連線閒置」上限；不是總時間上限，資料有在流就不會被砍 */
+const GENERATE_TIMEOUT_MS = 10 * 60_000;
 const POLL_INTERVAL_MS = 2_000;
 const POLL_MAX = 300; // 10 分鐘
 
@@ -92,6 +95,47 @@ function baseUrl(): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 送出 JSON 並等完整回應。長音訊的生成常常超過 5 分鐘，而 Node 內建的 fetch（undici）
+ * 預設等 5 分鐘 header 就放棄（HTTP/2: headers timeout after 300000），所以這裡走 node:https，
+ * 只設「連線閒置」上限。
+ */
+function postJson(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  idleTimeoutMs: number,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const payload = Buffer.from(body, 'utf8');
+    const send = target.protocol === 'http:' ? httpRequest : httpsRequest;
+    const req = send(
+      {
+        method: 'POST',
+        hostname: target.hostname,
+        port: target.port || (target.protocol === 'http:' ? 80 : 443),
+        path: `${target.pathname}${target.search}`,
+        headers: { ...headers, 'content-length': payload.length },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () =>
+          resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }),
+        );
+        res.on('error', reject);
+      },
+    );
+    req.setTimeout(idleTimeoutMs, () => {
+      req.destroy(new Error(`Gemini 超過 ${Math.round(idleTimeoutMs / 60_000)} 分鐘沒有回應，請把 --chunk-min 調小。`));
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
 }
 
 async function readFileJson(res: Response): Promise<Record<string, unknown>> {
@@ -269,6 +313,9 @@ export async function transcribeUploadedFile(
     maxOutputTokens?: number;
     startSec?: number;
     endSec?: number;
+    temperature?: number;
+    frequencyPenalty?: number;
+    presencePenalty?: number;
     onRetry?: (attempt: number, waitMs: number, message: string) => void;
   },
 ): Promise<string> {
@@ -284,37 +331,37 @@ export async function transcribeUploadedFile(
       ? { thinkingConfig: { thinkingLevel: 'minimal' } }
       : {};
 
-  const request = {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-goog-api-key': options.apiKey },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { fileData: { mimeType: file.mimeType, fileUri: file.uri } },
-            { text: `${language}\n${range}`.trim() },
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: options.maxOutputTokens ?? 65536,
-        ...thinking,
+  const body = JSON.stringify({
+    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { fileData: { mimeType: file.mimeType, fileUri: file.uri } },
+          { text: `${language}\n${range}`.trim() },
+        ],
       },
-    }),
-    signal: AbortSignal.timeout(GENERATE_TIMEOUT_MS),
-  } satisfies RequestInit;
+    ],
+    generationConfig: {
+      temperature: options.temperature ?? 0,
+      maxOutputTokens: options.maxOutputTokens ?? 65536,
+      ...(options.frequencyPenalty !== undefined ? { frequencyPenalty: options.frequencyPenalty } : {}),
+      ...(options.presencePenalty !== undefined ? { presencePenalty: options.presencePenalty } : {}),
+      ...thinking,
+    },
+  });
+  const headers = { 'content-type': 'application/json', 'x-goog-api-key': options.apiKey };
 
   let text = '';
   let status = 0;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const res = await fetch(url, request);
-    text = await res.text();
+    const res = await postJson(url, headers, body, GENERATE_TIMEOUT_MS);
+    text = res.text;
     status = res.status;
-    if (res.ok) break;
+    if (status >= 200 && status < 300) break;
     if ((status === 503 || status === 429) && attempt < 2) {
+      // 今天的額度用完就別再等，等到明天也不會在中途變回來
+      if (status === 429 && isDailyQuota(text)) throw new Error(friendly(status, text));
       const waitMs = status === 429 ? 60_000 : 15_000 * (attempt + 1);
       options.onRetry?.(attempt + 1, waitMs, friendly(status, text));
       await sleep(waitMs);

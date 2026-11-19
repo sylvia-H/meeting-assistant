@@ -117,12 +117,13 @@ export const TYPELESS_PRICE_PER_HOUR: Record<string, number> = {
 
 /** Gemini 用 generateContent 的 inline audio 轉錄；免費額度以官方為準。 */
 export const GEMINI_TRANSCRIBE_MODELS = [
-  { id: 'gemini-2.5-flash', label: 'gemini-2.5-flash（免費額度，建議）' },
-  { id: 'gemini-2.5-flash-lite', label: 'gemini-2.5-flash-lite（更快、額度較寬）' },
-  { id: 'gemini-2.5-pro', label: 'gemini-2.5-pro（較慢、額度較少）' },
+  { id: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview（建議，速度與品質最平衡）' },
+  { id: 'gemini-flash-lite-latest', label: 'gemini-flash-lite-latest（更快，長音檔要留意重複）' },
+  { id: 'gemini-3.1-flash-lite', label: 'gemini-3.1-flash-lite（最快，長音檔常卡在重複同一句）' },
+  { id: 'gemini-flash-latest', label: 'gemini-flash-latest（品質好，但會思考很久，長音檔不實用）' },
 ] as const;
 
-export const DEFAULT_GEMINI_TRANSCRIBE_MODEL = 'gemini-2.5-flash';
+export const DEFAULT_GEMINI_TRANSCRIBE_MODEL = 'gemini-3-flash-preview';
 
 export const TRANSCRIBER_LABELS: Record<TranscriberKind, string> = {
   typeless: 'Typeless',

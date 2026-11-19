@@ -20,7 +20,8 @@ export const SYSTEM_PROMPT = `你是專業的逐字稿聽打員。請把音訊�
 - 自動補上標點符號；沒有意義的語氣詞（嗯、呃、就是說）可以略過。
 - 不要標註講者，也不要把內容整理成條列。
 - 只輸出逐字稿本身，不要前言、標題、說明或 markdown 程式碼區塊。
-- 如果音訊是靜音或完全聽不出內容，輸出空字串。`;
+- 如果音訊是靜音或完全聽不出內容，輸出空字串。
+- 絕對不要重複同一句話、同一個詞或同一個片段；聽不清楚的地方直接跳過，繼續往下聽。`;
 
 /** 把 PCM（預設 16 kHz / 16-bit / mono）包成 44-byte 檔頭的 WAV。 */
 export function pcmToWav(pcm: Buffer): Buffer {
@@ -57,15 +58,40 @@ export function friendly(status: number, body: string): string {
   if (status === 401 || status === 403) return `Gemini API key 無效或沒有權限（${status}）。請到設定頁確認。\n${snippet}`;
   if (status === 404) return `找不到這個 Gemini 模型（404）。請到設定頁換一個模型。\n${snippet}`;
   if (status === 413) return `音訊太長，Gemini 不接受這個大小（413）。請把自動切段秒數調短。\n${snippet}`;
+  if (status === 429 && isDailyQuota(body)) {
+    return (
+      'Gemini 免費層「今天」的額度用完了（每個模型每天 20 次請求）。重試沒有用，' +
+      '太平洋時間午夜（台灣時間下午 3–4 點）重置；急用請換付費 key 或換另一個模型。\n' +
+      snippet
+    );
+  }
   if (status === 429) return `Gemini 免費額度用完或請求太頻繁（429）。等一會再試，或到 Google AI Studio 看額度。\n${snippet}`;
   if (status === 503) return `Gemini 目前負載過高（503）。等一兩分鐘再試一次即可。\n${snippet}`;
   return `Gemini 回應 ${status}：${snippet}`;
 }
 
+/**
+ * 429 有兩種：一種是「每分鐘太快」，等一下就好；一種是「今天的額度沒了」，重試只會浪費時間。
+ * 後者的 body 會帶 `PerDay` 或 `free_tier_requests ... limit: 20`。
+ */
+export function isDailyQuota(body: string): boolean {
+  return /PerDay|per_day|per day/i.test(body) || (/free_tier_requests/i.test(body) && /limit/i.test(body));
+}
+
+/**
+ * 模型偶爾會自己加一句開場白再開始逐字稿。實測長這樣：
+ *   好的，以下是該音訊的完整逐字稿：
+ *   好的，以下是該段音訊的完整逐字稿：
+ * 逐字稿不該有這種句子，所以只砍「開頭那一行」的固定說法，內文不動。
+ */
+const PREAMBLE = /^\s*(?:好的[，,、]?\s*)?以下是[^\n]{0,40}?逐字稿[：:]\s*/;
+
 export function cleanText(raw: string): string {
   let text = raw.trim();
   // 有些模型會無視指示包一層 code fence
   text = text.replace(/^```(?:text|markdown|md)?\s*\n?/i, '').replace(/\n?```$/, '').trim();
+  // 開場白可能出現在 code fence 裡面，所以放在去 fence 之後
+  text = text.replace(PREAMBLE, '').trim();
   return text.replace(/\n{3,}/g, '\n\n');
 }
 

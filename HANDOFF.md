@@ -10,7 +10,7 @@
 | 驗證 | 結果 |
 | --- | --- |
 | `npm run typecheck` | 0 錯誤 |
-| `npm test` | 31 項通過（新增 WAV 檔頭、MIME／時長解析） |
+| `npm test` | 38 項通過（WAV 檔頭、MIME／時長解析、重複偵測、開場白清除） |
 | `npm run smoke` | 37 項通過（Typeless + Gemini 兩條路徑、假 HTTP server） |
 | `npm run build` | 成功（JS 36.9 kB / CSS 11.0 kB） |
 | `npm run e2e` | 18 項通過（真 headless Edge + 假麥克風，console 零錯誤；連續跑 3 次皆過） |
@@ -54,7 +54,7 @@ npm run preview     # 拍截圖到 preview/（需先 build + npm start）
   會改成**當下設定的引擎**，所以「先建會議 → 去填 key → 回來開始」不會卡住。
 - 設定頁新增引擎下拉：
   - Typeless：key、模型、計價提示
-  - Gemini：key、模型（`gemini-2.5-flash` 預設）、免費額度提示、測試 key
+  - Gemini：key、模型（現在預設 `gemini-3-flash-preview`，清單在 `GEMINI_TRANSCRIBE_MODELS`）、免費額度提示、測試 key
   - 語言、自動切段、保留錄音兩邊共用
 - **一把 Gemini key 兩邊共用**：在轉錄欄或摘要欄填 Gemini key，server 會同時寫入
   `geminiApiKey` 與 `llmKeys.gemini`。
@@ -124,9 +124,26 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
   超過 `--chunk-min`（預設 30）就真的切成獨立檔案再逐段上傳，逐字稿按時間段落寫回 `transcript.md`。
 - **踩過的坑（不要重犯）**：整場 2 小時只上傳一份、用「請只轉錄 30:00–60:00」提示時間範圍，
   模型會忽略範圍、每次都從開場重轉一點就停（實測 4,586 字，內容重複）。必須真的切檔。
-- 實測：2 小時 m4a / 112 MB / 231,576 input tokens。`gemini-3.5-flash-lite` 對這種大請求一直 503；
-  `gemini-2.5-flash` 對新使用者已經 404；`gemini-3.8-flash` 503／連線中斷；
-  `gemini-3.1-flash-lite` 可用。整場單次請求會撞 `MAX_TOKENS`（65,536 輸出上限），所以一定要切 30 分鐘。
+- 實測：2 小時 m4a / 112 MB / 231,576 input tokens、輸出上限 65,536。
+  `gemini-2.5-flash` 對這個帳號已 404；`gemini-3.5-flash-lite` 對大請求一直 503；
+  `gemini-3.8-flash` 也 503／連線中斷。整場單次請求一定撞 `MAX_TOKENS`，所以一定要切 30 分鐘。
+- **第二個坑：模型會卡在「重複同一句」**。`gemini-3.1-flash-lite` 轉 10 分鐘音訊，會把
+  「那個時候，」重複三千多次直到撞 65,536 輸出上限（10 分鐘吐出 109,170 字）。`temperature: 0`、
+  加重複懲罰都救不了（這個模型直接回 `Penalty is not enabled for this model`），
+  改 0.4 反而變成 `RECITATION` 被擋。`gemini-flash-latest` 同一個檔案 1,535 字正常結束，
+  但它延遲太高（見下面第四點），最後改用 `gemini-3-flash-preview`。
+- `server/transcript-guard.ts`：尾端出現「同一段 2–80 字連續重複 ≥10 次且 ≥400 字」就砍掉，
+  避免正常口語重複被誤砍。`scripts/transcribe-file.ts` 偵測到重複或 MAX_TOKENS 時，
+  會把該段切成兩半重跑（最多三層，段落 < 5 分鐘就只保留砍完的內容）。
+- **第三個坑：`fetch` 5 分鐘就放棄等回應**。Node 內建 fetch（undici）的 `headersTimeout` 是 300 秒，
+  30 分鐘音訊的生成常常超過，錯誤長成 `fetch failed（HTTP/2: "headers timeout after 300000"）`。
+  `transcribeUploadedFile()` 改走 `node:https`（只設 10 分鐘「閒置」上限），所以可以等很久。
+- **第四個坑：模型延遲差很多**。同一句五個字的測試：`gemini-3-flash-preview` 1.6 秒、
+  `gemini-flash-lite-latest` 4.5 秒、`gemini-3.1-flash-lite` 1 秒、`gemini-flash-latest` **106 秒**
+  （它不吃 `thinkingLevel: minimal`，`thinkingBudget: 0` 反而直接超時）。
+  所以預設是 `gemini-3-flash-preview`。預設切段也從 30 分鐘改成 15 分鐘。
+- **第五個坑：模型會自己加開場白**。實測 9 段裡有 2 段開頭是「好的，以下是該（段）音訊的完整逐字稿：」。
+  `cleanText()` 現在會砍掉開頭那一行的這類說法（只砍開頭，內文的「以下是」不動）。
 
 ### 10. 設定頁「測試連線」吃不到 `.env`
 
@@ -150,8 +167,8 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
 4. ~~選配：`git init` 後第一次 commit~~ 已完成：`main` 分支，first commit `4c37ce6`。
 5. ~~（新需求，待確認）上傳既有錄音檔轉錄＋解析進度~~ 已完成 CLI（`scripts/transcribe-file.ts`），
    但**還沒接進畫面**：目前只能在終端機跑，app 內看不到粗進度。要做的是「上傳頁 → 背景工作 → 進度條」。
-6. `.env` 的 `GEMINI_TRANSCRIBE_MODEL` 目前是 `gemini-3.5-flash-lite`，對 2 小時大請求會 503，
-   建議改成 `gemini-3.1-flash-lite`（設定頁的「儲存」會把值寫進 `settings.json`，之後兩邊不同步時以設定頁為準）。
+6. `.env` 的 `GEMINI_TRANSCRIBE_MODEL` 已改成 `gemini-3-flash-preview`（原本 `gemini-3.5-flash-lite` 對大請求 503）。
+   設定頁按「儲存」會把值寫進 `settings.json`，之後兩邊不同步時以設定頁為準。
 
 ## 設計決策（不要隨便改，會動到資料格式）
 
@@ -201,6 +218,10 @@ meetings/
 
 - **這台機器沒有 ffmpeg**（`ffmpeg -version` 找不到）。要跑 `transcribe-file.ts` 的切段功能，
   得先 `winget install Gyan.FFmpeg`、下載 portable 版，或在 `.env` 設 `FFMPEG_PATH`。
+- **Gemini 免費層的每日上限是「每個模型」分開算**（實測：`gemini-3-flash-preview` 用完當天
+  20 次時，`gemini-3.1-flash-lite` 與 `gemini-flash-lite-latest` 仍可用）。2 小時會議要 9 段、
+  加上重試很容易把當日額度用完；額度是太平洋時間午夜重置（台灣下午 3–4 點）。
+  `friendly()` 會分辨「每分鐘限流」與「每日用完」，後者不再重試，直接說明白等明天。
 - **Gemini 免費層 429 很常見**，尤其是連續跑好幾段。`transcribeUploadedFile()` 內建
   503 等 15/30 秒、429 等 60 秒的重試；重試用盡就是真的額度問題。
 
