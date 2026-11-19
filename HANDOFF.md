@@ -12,7 +12,7 @@
 | `npm run typecheck` | 0 錯誤 |
 | `npm test` | 27 項通過（新增 WAV 檔頭測試） |
 | `npm run smoke` | 37 項通過（Typeless + Gemini 兩條路徑、假 HTTP server） |
-| `npm run build` | 成功（JS 36.5 kB / CSS 11.0 kB） |
+| `npm run build` | 成功（JS 36.9 kB / CSS 11.0 kB） |
 | `npm run e2e` | 18 項通過（真 headless Edge + 假麥克風，console 零錯誤；連續跑 3 次皆過） |
 | `npm run typography` | 孤行 0 處（1440px 與 390px） |
 
@@ -98,7 +98,7 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
    - 429 時的錯誤訊息是否看得懂；必要時把 `autoSegmentSeconds` 調大減少請求數
 2. 依試跑結果微調 `server/gemini.ts` 的 `SYSTEM_PROMPT`（目前：逐字、不摘要、不標講者）。
 3. 比較同一場會議的 Gemini 與 Typeless 逐字稿，決定預設引擎。
-4. 選配：`git init` 後第一次 commit（`.gitignore` 已備妥）。
+4. ~~選配：`git init` 後第一次 commit~~ 已完成：`main` 分支，first commit `4c37ce6`。
 
 ## 設計決策（不要隨便改，會動到資料格式）
 
@@ -150,8 +150,8 @@ meetings/
 - headless 瀏覽器的 `#/xxx` 導覽不會觸發 load 事件（已修在 `cdp.ts`）。
 - `text-wrap: pretty` 對中文幾乎無效；孤行一律先用 `text-wrap: balance`。
 - 多個非同步流程可能同時寫 `meeting.json`；atomic 暫存檔名一定要唯一。
-- 專案沒有 git repo。要版控先 `git init`；`.gitignore` 已排除 `.env`、`server/.data/`、
-  `meetings/`、`dist/`、`preview/`。
+- 版控已初始化（`main`，first commit `4c37ce6`）；`.gitignore` 已排除 `.env`、
+  `server/.data/`、`meetings/`、`dist/`、`preview/`。
 
 ## 試跑前你需要準備
 
