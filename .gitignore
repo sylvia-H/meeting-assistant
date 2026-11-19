@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+server/.data/
+meetings/
+preview/
+*.log
+.DS_Store

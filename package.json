@@ -1,0 +1,27 @@
+{
+  "name": "meeting-assistant",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "個人會議助手：Typeless 即時轉錄 + 標記式筆記 + LLM 會議紀錄",
+  "scripts": {
+    "dev": "node scripts/dev.ts",
+    "build": "tsc --noEmit && vite build",
+    "start": "node server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\" \"server/**/*.test.ts\"",
+    "smoke": "node scripts/smoke.ts",
+    "e2e": "node scripts/e2e.ts",
+    "typography": "node scripts/typography.ts",
+    "preview": "node scripts/preview.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}

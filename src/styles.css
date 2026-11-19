@@ -1,0 +1,890 @@
+:root {
+  --bg: #0f1115;
+  --panel: #161a21;
+  --panel-2: #1b2028;
+  --border: #262c36;
+  --text: #e7eaf0;
+  --muted: #8b93a3;
+  --accent: #7dd3a8;
+  --accent-ink: #0b1a13;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --radius: 12px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei',
+    system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.75;
+  line-break: strict;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.3;
+  text-wrap: balance;
+  margin: 0 0 8px;
+}
+
+h1 {
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+p {
+  margin: 0 0 10px;
+  text-wrap: balance;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(15, 17, 21, 0.9);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.brand {
+  font-weight: 650;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.topbar nav {
+  display: flex;
+  gap: 14px;
+  font-size: 14px;
+}
+
+.topbar nav a {
+  color: var(--muted);
+}
+
+.topbar nav a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.topbar-status {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 24px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12.5px;
+}
+
+.ok {
+  color: var(--accent);
+  font-style: normal;
+}
+
+.warn {
+  color: var(--warn);
+  font-style: normal;
+}
+
+.danger-text {
+  color: var(--danger);
+}
+
+button {
+  font: inherit;
+  font-size: 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+
+button:hover:not(:disabled) {
+  background: #232a35;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #94e0ba;
+}
+
+button.ghost {
+  background: transparent;
+}
+
+button.danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  color: var(--danger);
+}
+
+button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.7;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* 表單標籤：用 block 而不是 flex，text-wrap: balance 才會作用在文字上（flex 會把文字變成匿名 flex item） */
+.field > span {
+  display: block;
+  text-wrap: balance;
+}
+
+.field > span > em {
+  margin-left: 8px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.check input {
+  width: auto;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  font-size: 12.5px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--panel-2);
+}
+
+.notice {
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--border));
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  color: var(--warn);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  margin: 8px 0;
+}
+
+.notice a {
+  color: var(--warn);
+  text-decoration: underline;
+}
+
+/* ── 會議列表 ───────────────────────────── */
+.meeting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meeting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.meeting-row:last-child {
+  border-bottom: none;
+}
+
+.meeting-row:hover {
+  background: var(--panel-2);
+  text-decoration: none;
+}
+
+.meeting-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.meeting-main strong {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meeting-main span {
+  font-size: 12.5px;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.badge-done {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+/* ── 錄音頁 ─────────────────────────────── */
+.live {
+  padding-bottom: 24px;
+}
+
+.live-head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.live-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.live-title h1 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.sep {
+  opacity: 0.5;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.dot[data-status='recording'] {
+  background: var(--danger);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 18%, transparent);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.dot[data-status='paused'] {
+  background: var(--warn);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.live-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+#timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.meter {
+  width: 96px;
+  height: 3px;
+  background: var(--panel-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+#meter-bar {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 90ms linear;
+}
+
+.live-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* hidden 屬性要壓過 .banner 的 display:flex，否則會留一個空框 */
+[hidden] {
+  display: none !important;
+}
+
+.banner {
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  color: var(--warn);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13.5px;
+}
+
+.banner button {
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+  color: var(--warn);
+}
+
+.live-body {
+  display: grid;
+  grid-template-columns: 1.45fr 1fr;
+  gap: 16px;
+  height: calc(100vh - 350px);
+  min-height: 320px;
+  margin-top: 16px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-head h2 {
+  margin: 0;
+}
+
+.segments,
+.notes {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 16px;
+}
+
+.seg {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.seg:last-child {
+  border-bottom: none;
+}
+
+.seg header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.seg-index {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+}
+
+.seg p {
+  margin: 0 0 8px;
+  max-width: 38em;
+}
+
+.recording::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+  margin-right: 6px;
+  vertical-align: middle;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.note {
+  display: grid;
+  grid-template-columns: 52px 58px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 7px 8px 7px 10px;
+  border-left: 2px solid var(--kind, var(--border));
+  margin-bottom: 4px;
+  background: color-mix(in srgb, var(--kind, var(--border)) 5%, transparent);
+  border-radius: 0 6px 6px 0;
+  font-size: 14px;
+}
+
+.note-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.note-kind {
+  font-size: 12px;
+  color: var(--kind, var(--muted));
+}
+
+.note-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 34em;
+  /* 筆記常是 1–3 行的短句，最容易被擠出孤行 */
+  text-wrap: balance;
+}
+
+.composer {
+  position: sticky;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+
+.composer input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 6px 2px;
+  font-size: 15px;
+}
+
+.composer input:focus {
+  outline: none;
+}
+
+.kind-chip {
+  font-size: 12.5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-item code {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 0;
+}
+
+/* ── 結果頁 ─────────────────────────────── */
+.result-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.result-head h1 {
+  margin: 6px 0 4px;
+}
+
+.back {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.result-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.markdown {
+  max-width: 38em;
+  font-size: 15px;
+}
+
+.markdown h1 {
+  font-size: 21px;
+  margin: 18px 0 10px;
+}
+
+.markdown h2 {
+  font-size: 17px;
+  margin: 22px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown h3 {
+  font-size: 15px;
+  margin: 16px 0 6px;
+  color: var(--accent);
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 1.3em;
+  margin: 0 0 12px;
+}
+
+.markdown li {
+  margin-bottom: 4px;
+  text-wrap: balance;
+}
+
+.markdown p {
+  margin: 0 0 10px;
+}
+
+.markdown blockquote {
+  margin: 0 0 12px;
+  padding: 4px 14px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+}
+
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+.markdown pre {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 0 0 14px;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown th {
+  background: var(--panel-2);
+  font-weight: 600;
+}
+
+details.card > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+details.card > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.card > summary::before {
+  content: '▸';
+  color: var(--muted);
+}
+
+details.card[open] > summary::before {
+  content: '▾';
+}
+
+details.card > summary h2 {
+  margin: 0;
+}
+
+.transcript {
+  margin-top: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.notes-static {
+  margin-top: 12px;
+}
+
+.path-hint {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+.error-detail {
+  white-space: pre-wrap;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+/* ── toast ──────────────────────────────── */
+.toasts {
+  position: fixed;
+  /* 靠左下：右下角是筆記輸入框的「送出」，蓋住會讓人按不到 */
+  left: 20px;
+  bottom: 20px;
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 50;
+  max-width: min(420px, calc(100vw - 40px));
+}
+
+.toast {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  animation: toast-in 160ms ease-out;
+  white-space: pre-wrap;
+}
+
+.toast-error {
+  border-left-color: var(--danger);
+}
+
+.toast-out {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (max-width: 860px) {
+  .liv-body,
+  .live-body {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .panel {
+    max-height: 55vh;
+  }
+
+  .live-head {
+    gap: 12px;
+  }
+
+  #timer {
+    font-size: 24px;
+  }
+
+  .row {
+    grid-template-columns: 1fr;
+  }
+
+  .page {
+    padding: 16px 14px 60px;
+  }
+
+  .note {
+    grid-template-columns: 44px 52px 1fr;
+  }
+}
