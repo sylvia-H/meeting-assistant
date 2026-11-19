@@ -98,6 +98,8 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
   同一個 Wi-Fi 下的裝置其實連得到（app 沒有登入機制）。要開放才設 `HOST=0.0.0.0`。
 - `.env.example`、`README.md` 補上：兩邊都填時設定頁優先、改 `.env` 要重啟、
   key 只存在伺服器端，瀏覽器只拿得到 `••••1234` 遮罩。
+- 設定頁目前沒有「清除已存 key」按鈕；要改用 `.env` 得手動刪
+  `server/.data/settings.json` 的 `geminiApiKey` / `llmKeys.gemini`。
 
 ## 待辦（只剩這些）
 
@@ -168,7 +170,7 @@ meetings/
 - Gemini API key：<https://aistudio.google.com/apikey>（免費層即可）
 - 不想在瀏覽器貼 key：把 `.env.example` 複製成 `.env`，填 `GEMINI_API_KEY`，
   再加 `TRANSCRIBER=gemini` 與 `GEMINI_TRANSCRIBE_MODEL=gemini-2.5-flash`，
-  重啟 `npm run dev`。設定頁留白時才會用 `.env`。
+  重啟 `npm run dev`。設定頁沒有存過 key 時才會用 `.env`（設定頁優先）。
 - 摘要可以也用 Gemini（同一把 key），或填 Claude / OpenAI
 - 逐字稿**只會在切段後出現**，這是兩個引擎共同的限制，不是 bug
 - 免費層的內容可能被用於改善服務；敏感的會議請改用付費 key

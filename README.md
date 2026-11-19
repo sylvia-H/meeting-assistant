@@ -54,7 +54,8 @@ npm start
 > **也可以放 `.env`**（專案根目錄，已 gitignore）：`GEMINI_API_KEY`、`TYPELESS_API_KEY`、
 > `ANTHROPIC_API_KEY`、`OPENAI_API_KEY`。只想用 `.env` 的話再加 `TRANSCRIBER=gemini`
 > 與 `GEMINI_TRANSCRIBE_MODEL=gemini-2.5-flash`，改完要重啟 `npm run dev`。
-> 兩邊都填時**設定頁優先**；想改用 `.env`，把設定頁的 key 欄位清空後儲存。
+> 兩邊都填時**設定頁優先**；設定頁目前沒有「清除」按鈕，想改用 `.env` 請用文字編輯器
+> 打開 `server/.data/settings.json`，刪掉 `geminiApiKey` 與 `llmKeys.gemini` 後重啟。
 >
 > 伺服器預設只綁 `127.0.0.1`，同一個 Wi-Fi 的其他裝置連不到；要開放再設 `HOST=0.0.0.0`
 > （這個 app 沒有登入機制，開放等於同網段的人都能看你的會議、用你的額度）。
