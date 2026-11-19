@@ -226,8 +226,10 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     if (method === 'POST' && parts[3] === 'finish') {
       const meeting = await readMeeting(id);
       if (meeting.status !== 'ended') {
+        // 建了會議但從沒開始錄音：不該把「牆上時鐘」算成會議長度
+        const neverStarted = meeting.status === 'ready' && meeting.segments.length === 0;
         meeting.status = 'ended';
-        meeting.endedAt ??= new Date().toISOString();
+        meeting.endedAt ??= neverStarted ? meeting.startedAt : new Date().toISOString();
         await saveMeeting(meeting);
         await writeTranscript(meeting);
         await writeNotes(meeting);
