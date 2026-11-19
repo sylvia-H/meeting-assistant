@@ -223,7 +223,12 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
     setBusy(btn, true, '測試中…');
     out.textContent = '';
     try {
-      const res = await pingLlm();
+      // 用畫面上目前的選擇測試，不必先儲存
+      const res = await pingLlm({
+        provider: q<HTMLSelectElement>(root, '#provider').value,
+        model: q<HTMLInputElement>(root, '#llm-model').value.trim(),
+        apiKey: q<HTMLInputElement>(root, '#llm-key').value.trim(),
+      });
       out.innerHTML = `<span class="ok">${escapeHtml(res.message)}</span>`;
     } catch (err) {
       out.innerHTML = `<span class="warn">${escapeHtml(errorText(err))}</span>`;

@@ -12,7 +12,7 @@ const CHANNELS = 1;
 const BITS = 16;
 const TIMEOUT_MS = 90_000;
 
-const SYSTEM_PROMPT = `你是專業的逐字稿聽打員。請把音訊中的說話內容逐字轉成文字。
+export const SYSTEM_PROMPT = `你是專業的逐字稿聽打員。請把音訊中的說話內容逐字轉成文字。
 
 規則：
 - 使用繁體中文與台灣用語。
@@ -49,7 +49,7 @@ function baseUrl(): string {
   return (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
 }
 
-function friendly(status: number, body: string): string {
+export function friendly(status: number, body: string): string {
   const snippet = body.slice(0, 400);
   if (status === 400 && /API_KEY_INVALID|API key not valid/i.test(body)) {
     return `Gemini API key 無效（400）。請到設定頁重新貼上。\n${snippet}`;
@@ -58,11 +58,11 @@ function friendly(status: number, body: string): string {
   if (status === 404) return `找不到這個 Gemini 模型（404）。請到設定頁換一個模型。\n${snippet}`;
   if (status === 413) return `音訊太長，Gemini 不接受這個大小（413）。請把自動切段秒數調短。\n${snippet}`;
   if (status === 429) return `Gemini 免費額度用完或請求太頻繁（429）。等一會再試，或到 Google AI Studio 看額度。\n${snippet}`;
-  if (status === 503) return `Gemini 目前負載過高（503）。稍後再按一次「切段」即可。\n${snippet}`;
+  if (status === 503) return `Gemini 目前負載過高（503）。等一兩分鐘再試一次即可。\n${snippet}`;
   return `Gemini 回應 ${status}：${snippet}`;
 }
 
-function cleanText(raw: string): string {
+export function cleanText(raw: string): string {
   let text = raw.trim();
   // 有些模型會無視指示包一層 code fence
   text = text.replace(/^```(?:text|markdown|md)?\s*\n?/i, '').replace(/\n?```$/, '').trim();

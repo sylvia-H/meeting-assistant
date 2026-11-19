@@ -84,6 +84,34 @@ npm start
 > 如果一段不到 20 秒，`# 環節` 只會把標籤併進當前段，不會硬切出零碎段落。
 > 手動按「切段」則一定生效。
 
+## 把既有的錄音檔轉成逐字稿
+
+已經有錄音（手機、錄音筆、Teams 匯出）就不用重錄，直接把音檔轉成某場會議的逐字稿：
+
+```powershell
+node scripts/transcribe-file.ts "C:\Users\me\Downloads\會議.m4a" --meeting 2026-11-18-1400-xxx
+```
+
+- 檔案超過 30 分鐘會**先用 ffmpeg 真的切成每段 30 分鐘**，再逐段上傳轉錄
+  （用 `--chunk-min 20` 可以調短）。整場一次丟給 Gemini 會撞到輸出上限。
+- 100 MB 以上的檔案走 Gemini **Files API**（上傳免費，檔案在 Google 保留 48 小時）。
+  同一個檔案重跑第二次會自動沿用已上傳的版本，不會再傳一次。
+- 逐字稿寫回 `meetings/<id>/transcript.md`，會議狀態設為「已結束」，逐字稿依時間段落分節。
+- 會議已經有逐字稿時要加 `--replace` 才會覆蓋。
+- 跑到一半失敗不會白費：已完成段落留在 `transcript.partial.md`。
+
+需要 **ffmpeg**（只要切段才需要）。三種裝法任選一種：
+
+```powershell
+winget install Gyan.FFmpeg                     # 裝完重開終端機
+# 或下載 portable 版解壓到 tools\ffmpeg\bin\ffmpeg.exe
+# https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+# 或在 .env 指定 FFMPEG_PATH=C:\path\to\ffmpeg.exe
+```
+
+長會議的實際數字（2 小時 m4a，112 MB）：切成 4 段各 30 分鐘，input 約 23 萬 tokens，
+用 `gemini-3.1-flash-lite` 一段約 30–60 秒。`gemini-3.5-flash-lite` 對這種大請求常常回 503。
+
 ## 打字筆記
 
 輸入框直接打字就是一般筆記；前面加符號可以分類（符號後面要空白，全形符號也可以）：
@@ -176,6 +204,11 @@ tags:
 **為什麼 Gemini 的切段上限是 280 秒？**
 Gemini 的 inline 音訊請求有大小限制（約 20 MB）。16 kHz / 16-bit 單聲道在 280 秒時約 9 MB，
 包成 WAV 再 base64 後仍在限制內。設定頁最多就是 280 秒。
+
+**設定頁「測試連線」說沒有 API key，但 `.env` 明明有？**
+先確認畫面上的**供應商**是不是你放 key 的那一家。測試連線用的是畫面上目前的供應商與模型（不必先按儲存），
+key 的來源會顯示在結果後面，例如「key 來源：`.env` 的 `GEMINI_API_KEY`」。
+沒在設定頁存過供應商時，程式會自動選「有 key 的那一家」。改過 `.env` 也不用重啟，存檔後下一次呼叫就會吃到。
 
 **可以錄 Google Meet / Zoom 的聲音嗎？**
 不行，這版只錄麥克風。要錄系統音訊得另外做虛擬音訊裝置（Windows 的立體聲混音或 macOS 的 BlackHole），不在這版範圍。

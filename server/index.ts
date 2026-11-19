@@ -148,7 +148,12 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       return;
     }
     if (method === 'POST' && parts[2] === 'ping') {
-      const message = await pingLlm();
+      const body = await readJson(req).catch(() => ({}) as Record<string, unknown>);
+      const message = await pingLlm({
+        provider: typeof body.provider === 'string' ? body.provider : undefined,
+        model: typeof body.model === 'string' ? body.model : undefined,
+        apiKey: typeof body.apiKey === 'string' ? body.apiKey : undefined,
+      });
       sendJson(res, 200, { ok: true, message });
       return;
     }

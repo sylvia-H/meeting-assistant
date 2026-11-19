@@ -1,4 +1,4 @@
-import { settings } from './config.ts';
+import { llmKeyFor, llmKeySource, settings } from './config.ts';
 
 export interface LlmResult {
   text: string;
@@ -141,32 +141,67 @@ export async function generateMinutes(system: string, user: string): Promise<Llm
 }
 
 /** 設定頁的「測試連線」用：花最少的 token 確認 key 可用 */
-export async function pingLlm(): Promise<string> {
+export interface PingOptions {
+  /** 畫面上選的 provider；沒填就用已存的設定 */
+  provider?: string;
+  model?: string;
+  /** 畫面上剛貼上、還沒存的 key */
+  apiKey?: string;
+}
+
+const ENV_NAME: Record<string, string> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+};
+
+export async function pingLlm(options: PingOptions = {}): Promise<string> {
   const s = settings();
-  if (!s.llmApiKey) throw new Error('尚未設定 API key');
-  if (s.llmProvider === 'anthropic') {
+  const provider = options.provider || s.llmProvider;
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'gemini') {
+    throw new Error(`不支援的 LLM provider：${provider}`);
+  }
+  const apiKey = options.apiKey?.trim() || (provider === s.llmProvider ? s.llmApiKey : llmKeyFor(provider));
+  const model = options.model?.trim() || s.llmModels[provider];
+  if (!apiKey) {
+    const where = ENV_NAME[provider] ?? 'API key';
+    throw new Error(
+      `尚未設定 ${provider} 的 API key。可以在這裡貼上並儲存，或把 ${where} 放進專案根目錄的 .env 再按一次。`,
+    );
+  }
+
+  if (provider === 'anthropic') {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': s.llmApiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: s.llmModel, max_tokens: 8, messages: [{ role: 'user', content: '回覆 ok' }] }),
+      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: 'user', content: '回覆 ok' }] }),
       signal: AbortSignal.timeout(30_000),
     });
     const text = await res.text();
     if (!res.ok) throw new Error(friendly(res.status, text));
-    return `${s.llmModel} 可用`;
+    return `${model} 可用（key 來源：${sourceLabel(provider, options.apiKey)}）`;
   }
-  if (s.llmProvider === 'openai') {
+  if (provider === 'openai') {
     const res = await fetch('https://api.openai.com/v1/models', {
-      headers: { authorization: `Bearer ${s.llmApiKey}` },
+      headers: { authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) throw new Error(friendly(res.status, await res.text()));
-    return `${s.llmModel}（key 可用，實際呼叫時才會驗證模型名稱）`;
+    return `${model}（key 可用，實際呼叫時才會驗證模型名稱；來源：${sourceLabel(provider, options.apiKey)}）`;
   }
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(s.llmModel)}`,
-    { headers: { 'x-goog-api-key': s.llmApiKey }, signal: AbortSignal.timeout(30_000) },
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`,
+    { headers: { 'x-goog-api-key': apiKey }, signal: AbortSignal.timeout(30_000) },
   );
   if (!res.ok) throw new Error(friendly(res.status, await res.text()));
-  return `${s.llmModel} 可用`;
+  return `${model} 可用（key 來源：${sourceLabel(provider, options.apiKey)}）`;
+}
+
+function sourceLabel(provider: string, typedKey?: string): string {
+  if (typedKey?.trim()) return '剛貼上的欄位';
+  const source = llmKeySource(provider as 'anthropic' | 'openai' | 'gemini');
+  if (source === 'env') return `.env 的 ${ENV_NAME[provider]}`;
+  if (source === 'settings') return '設定頁';
+  if (source === 'shared') return 'Gemini 轉錄共用的那把';
+  return '未知';
 }

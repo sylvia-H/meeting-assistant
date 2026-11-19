@@ -26,8 +26,12 @@ export const getSettings = (): Promise<SettingsView> => api<SettingsView>('/api/
 export const saveSettings = (patch: Record<string, unknown>): Promise<SettingsView> =>
   api<SettingsView>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) });
 
-export const pingLlm = (): Promise<{ ok: boolean; message: string }> =>
-  api('/api/settings/ping', { method: 'POST' });
+export const pingLlm = (input: {
+  provider: string;
+  model: string;
+  apiKey?: string;
+}): Promise<{ ok: boolean; message: string }> =>
+  api('/api/settings/ping', { method: 'POST', body: JSON.stringify(input) });
 
 export const pingGemini = (apiKey?: string, model?: string): Promise<{ ok: boolean; message: string }> =>
   api('/api/settings/ping-gemini', {

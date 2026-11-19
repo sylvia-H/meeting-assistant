@@ -10,7 +10,7 @@
 | 驗證 | 結果 |
 | --- | --- |
 | `npm run typecheck` | 0 錯誤 |
-| `npm test` | 27 項通過（新增 WAV 檔頭測試） |
+| `npm test` | 31 項通過（新增 WAV 檔頭、MIME／時長解析） |
 | `npm run smoke` | 37 項通過（Typeless + Gemini 兩條路徑、假 HTTP server） |
 | `npm run build` | 成功（JS 36.9 kB / CSS 11.0 kB） |
 | `npm run e2e` | 18 項通過（真 headless Edge + 假麥克風，console 零錯誤；連續跑 3 次皆過） |
@@ -113,6 +113,32 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
 - `POST /api/meetings/:id/finish` 對 `ready` 且 0 段的會議把 `endedAt` 設成 `startedAt`，
   不會留下「20 小時」的假時長。
 
+### 9. 既有錄音檔轉錄（拍板：真的用 ffmpeg 切段）
+
+- 新增 `server/gemini-file.ts`：Files API resumable 上傳、等 `ACTIVE`、48 小時內同檔名＋同大小
+  自動沿用、`countFileTokens()`、`modelLimits()`、`transcribeUploadedFile()`。
+  上傳免費，單檔上限 2 GB、專案 20 GB、保留 48 小時。
+- 新增 `server/ffmpeg.ts`：`resolveFfmpeg()`（`FFMPEG_PATH` → `tools/ffmpeg` → `%LOCALAPPDATA%` →
+  `%TEMP%\opencode` → PATH）與 `splitAudio()`，用 `-c copy` + segment muxer，2 小時幾秒鐘切完。
+- 新增 `scripts/transcribe-file.ts`：`--meeting / --out / --model / --chunk-min / --replace`。
+  超過 `--chunk-min`（預設 30）就真的切成獨立檔案再逐段上傳，逐字稿按時間段落寫回 `transcript.md`。
+- **踩過的坑（不要重犯）**：整場 2 小時只上傳一份、用「請只轉錄 30:00–60:00」提示時間範圍，
+  模型會忽略範圍、每次都從開場重轉一點就停（實測 4,586 字，內容重複）。必須真的切檔。
+- 實測：2 小時 m4a / 112 MB / 231,576 input tokens。`gemini-3.5-flash-lite` 對這種大請求一直 503；
+  `gemini-2.5-flash` 對新使用者已經 404；`gemini-3.8-flash` 503／連線中斷；
+  `gemini-3.1-flash-lite` 可用。整場單次請求會撞 `MAX_TOKENS`（65,536 輸出上限），所以一定要切 30 分鐘。
+
+### 10. 設定頁「測試連線」吃不到 `.env`
+
+- 原本 `POST /api/settings/ping` 只測「已儲存的 provider」。沒存過 `settings.json` 時 provider 預設
+  `anthropic`，所以就算 `.env` 有 `GEMINI_API_KEY`，按下測試也只會說「尚未設定 API key」。
+- 現在 ping 會帶上畫面上的 `provider` / `model` / 剛貼上的 key，**不用先儲存**；
+  成功訊息會註明 key 來源（`設定頁` / `.env` 的 X / Gemini 轉錄共用）。
+- `server/config.ts`：
+  - `settings()` 快取改成比對 `settings.json` 與 `.env` 的 mtime，**改 `.env` 不用重啟**。
+  - 沒存過 provider 時自動挑「有 key 的那一家」（anthropic → openai → gemini）。
+  - 新增 `llmKeyFor()` / `llmKeySource()`，`settingsView()` 改用它，不再自己複製一份優先序。
+
 ## 待辦（只剩這些）
 
 1. **用真的 Gemini key 跑一場 20–30 分鐘會議**（<https://aistudio.google.com/apikey>）：
@@ -122,7 +148,10 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
 2. 依試跑結果微調 `server/gemini.ts` 的 `SYSTEM_PROMPT`（目前：逐字、不摘要、不標講者）。
 3. 比較同一場會議的 Gemini 與 Typeless 逐字稿，決定預設引擎。
 4. ~~選配：`git init` 後第一次 commit~~ 已完成：`main` 分支，first commit `4c37ce6`。
-5. （新需求，待確認）上傳既有錄音檔轉錄＋解析進度。目前只有麥克風即時錄音。
+5. ~~（新需求，待確認）上傳既有錄音檔轉錄＋解析進度~~ 已完成 CLI（`scripts/transcribe-file.ts`），
+   但**還沒接進畫面**：目前只能在終端機跑，app 內看不到粗進度。要做的是「上傳頁 → 背景工作 → 進度條」。
+6. `.env` 的 `GEMINI_TRANSCRIBE_MODEL` 目前是 `gemini-3.5-flash-lite`，對 2 小時大請求會 503，
+   建議改成 `gemini-3.1-flash-lite`（設定頁的「儲存」會把值寫進 `settings.json`，之後兩邊不同步時以設定頁為準）。
 
 ## 設計決策（不要隨便改，會動到資料格式）
 
@@ -145,6 +174,8 @@ server/
   index.ts    HTTP 路由、靜態檔、WS upgrade、settings PUT
   relay.ts    LiveSession：分段、Typeless / Gemini 分支、WAV、存檔
   gemini.ts   PCM → WAV、Gemini 逐字轉錄、ping
+  gemini-file.ts  Files API 上傳／沿用／token 估算／長音檔轉錄
+  ffmpeg.ts   找 ffmpeg、把長錄音切成獨立段落
   store.ts    會議資料夾 CRUD、markdown 產生（atomic 寫入）
   prompt.ts   摘要 prompt（規則都在 SYSTEM_PROMPT）
   llm.ts      Claude / OpenAI / Gemini 摘要呼叫 + 錯誤翻譯
@@ -155,6 +186,7 @@ src/
   styles.css  深色、極簡、中文行高 1.75
 scripts/
   dev.ts        同時跑 API 與 Vite
+  transcribe-file.ts  既有錄音檔 → 切段 → 逐段轉錄 → 寫回會議
   smoke.ts      假 Typeless + 假 Gemini + MOCK_LLM（37 項）
   e2e.ts        真瀏覽器 + 假麥克風（18 項）
   typography.ts 中文孤行檢測（1440 / 390）
@@ -166,6 +198,11 @@ meetings/
 ```
 
 ## 環境雷（都是實際踩過的）
+
+- **這台機器沒有 ffmpeg**（`ffmpeg -version` 找不到）。要跑 `transcribe-file.ts` 的切段功能，
+  得先 `winget install Gyan.FFmpeg`、下載 portable 版，或在 `.env` 設 `FFMPEG_PATH`。
+- **Gemini 免費層 429 很常見**，尤其是連續跑好幾段。`transcribeUploadedFile()` 內建
+  503 等 15/30 秒、429 等 60 秒的重試；重試用盡就是真的額度問題。
 
 - **不要用 PowerShell 做原始碼的字串取代**。`Get-Content -Raw` 在 PowerShell 5.1 用 ANSI 讀 UTF-8，
   `Set-Content` 寫回去中文全變亂碼且**不可逆**。改檔一律用 edit / write 工具。
