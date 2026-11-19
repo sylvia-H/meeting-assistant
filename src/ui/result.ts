@@ -64,11 +64,13 @@ export function renderMeeting(id: string): View {
     document.title = `${meeting.title} · 會議紀錄`;
     const sameDay = meeting.endedAt ? formatDate(meeting.endedAt) === formatDate(meeting.startedAt) : true;
     const end = meeting.endedAt ? (sameDay ? formatClock(meeting.endedAt) : formatDateTime(meeting.endedAt)) : '還沒結束';
-    const duration = meeting.endedAt
-      ? formatDurationZh((new Date(meeting.endedAt).getTime() - new Date(meeting.startedAt).getTime()) / 1000)
-      : '進行中';
+    const range = meeting.endedAt
+      ? `${formatClock(meeting.startedAt)} → ${end} · ${formatDurationZh((new Date(meeting.endedAt).getTime() - new Date(meeting.startedAt).getTime()) / 1000)}`
+      : meeting.status === 'ready'
+        ? '尚未開始'
+        : `${formatClock(meeting.startedAt)} → 還沒結束 · 進行中`;
     const segCount = meeting.segments.filter((s) => s.transcript.trim()).length;
-    metaEl.textContent = `${formatDate(meeting.startedAt)} · ${formatClock(meeting.startedAt)} → ${end} · ${duration} · ${segCount} 段逐字稿 · ${meeting.notes.length} 則筆記`;
+    metaEl.textContent = `${formatDate(meeting.startedAt)} · ${range} · ${segCount} 段逐字稿 · ${meeting.notes.length} 則筆記`;
     btnSummarize.textContent = meeting.minutes ? '重新產生紀錄' : '產生會議紀錄';
     btnSummarize.disabled = false;
   }
@@ -92,7 +94,9 @@ export function renderMeeting(id: string): View {
         </article>`,
           )
           .join('')
-      : '<p class="muted">這場沒有逐字稿。</p>';
+      : meeting.status === 'ready'
+        ? '<p class="muted">這場還沒開始錄音，所以沒有逐字稿。按上方「開始錄音」。</p>'
+        : '<p class="muted">這場沒有逐字稿。</p>';
   }
 
   function renderNotes(): void {
@@ -121,13 +125,19 @@ export function renderMeeting(id: string): View {
         ? renderMarkdown(stripFrontmatter(markdown))
         : '<p class="muted">還沒有會議紀錄。按右上角「產生會議紀錄」。</p>';
       if (meeting.status !== 'ended') {
-        const finish = el('button', 'ghost', '標記為已結束');
+        const actions = q<HTMLElement>(root, '.result-actions');
+        if (meeting.status === 'ready') {
+          const start = el('a', 'primary', '開始錄音');
+          start.href = `#/live/${encodeURIComponent(id)}`;
+          actions.prepend(start);
+        }
+        const finish = el('button', 'ghost', meeting.status === 'ready' ? '取消這場會議' : '標記為已結束');
         finish.addEventListener('click', async () => {
           await finishMeeting(id);
           toast('已標記結束');
           location.reload();
         });
-        q<HTMLElement>(root, '.result-actions').appendChild(finish);
+        actions.appendChild(finish);
       }
     } catch (err) {
       minutesHost.innerHTML = `<p class="warn">載入失敗：${escapeHtml(errorText(err))}</p>`;

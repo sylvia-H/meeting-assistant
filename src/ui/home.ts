@@ -128,12 +128,22 @@ export function renderHome(settings: SettingsView): View {
 }
 
 function renderRow(meeting: MeetingSummary): string {
-  const badge = meeting.status === 'ended' ? (meeting.hasMinutes ? '已整理' : '待整理') : '進行中';
+  const badge =
+    meeting.status === 'ended'
+      ? meeting.hasMinutes
+        ? '已整理'
+        : '待整理'
+      : meeting.status === 'ready'
+        ? '未開始'
+        : meeting.status === 'paused'
+          ? '已暫停'
+          : '錄音中';
+  const when = meeting.status === 'ready' ? '尚未開始' : formatDurationZh(meeting.durationSec);
   return `
     <a class="meeting-row" href="#/meeting/${encodeURIComponent(meeting.id)}">
       <div class="meeting-main">
         <strong>${escapeHtml(meeting.title)}</strong>
-        <span class="muted">${formatDateTime(meeting.startedAt)} · ${formatDurationZh(meeting.durationSec)} · ${meeting.noteCount} 則筆記</span>
+        <span class="muted">${formatDateTime(meeting.startedAt)} · ${when} · ${meeting.noteCount} 則筆記</span>
       </div>
       <span class="badge ${meeting.hasMinutes ? 'badge-done' : ''}">${badge}</span>
     </a>

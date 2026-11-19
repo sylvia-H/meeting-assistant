@@ -101,6 +101,16 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
 - 設定頁目前沒有「清除已存 key」按鈕；要改用 `.env` 得手動刪
   `server/.data/settings.json` 的 `geminiApiKey` / `llmKeys.gemini`。
 
+### 8. 狀態標示修正（`ready` 不等於「進行中」）
+
+- 首頁 badge 原本只有 `ended` / 其他兩種，建立後沒錄音的會議會一直顯示「進行中」，
+  時間也跟著牆上時鐘長到 20 小時。現在：`ready` → 未開始、`recording` → 錄音中、
+  `paused` → 已暫停、`ended` → 已整理／待整理。
+- 紀錄頁的 `ready` 會議顯示「尚未開始」，並多一顆「開始錄音」連到 `#/live/:id`；
+  沒有逐字稿時提示先開始錄音。原本只有「標記為已結束」。
+- **這一版仍然只能即時麥克風轉錄，沒有「上傳錄音檔解析」**。在「參考資料」選音檔
+  只會被當附件存進 `reference/`，不會轉錄、也不會有進度。
+
 ## 待辦（只剩這些）
 
 1. **用真的 Gemini key 跑一場 20–30 分鐘會議**（<https://aistudio.google.com/apikey>）：
@@ -110,6 +120,7 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
 2. 依試跑結果微調 `server/gemini.ts` 的 `SYSTEM_PROMPT`（目前：逐字、不摘要、不標講者）。
 3. 比較同一場會議的 Gemini 與 Typeless 逐字稿，決定預設引擎。
 4. ~~選配：`git init` 後第一次 commit~~ 已完成：`main` 分支，first commit `4c37ce6`。
+5. （新需求，待確認）上傳既有錄音檔轉錄＋解析進度。目前只有麥克風即時錄音。
 
 ## 設計決策（不要隨便改，會動到資料格式）
 
