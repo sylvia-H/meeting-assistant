@@ -232,6 +232,16 @@ meetings/
 - **中斷的段落會標成失敗**：`openLive()` 在連線進來時，把還停在 `open` 的段落改標
   `failed / 連線中斷，這段音訊沒有留下`。那段 PCM 只存在被中斷的行程記憶體裡，
   本來就救不回來，標失敗才不會讓畫面永遠掛著「收音中」。
+- **靜音會讓 Gemini 自己編一份假逐字稿**（實測：11 秒數位靜音 → 「大家早安，我們現在開始
+  今天的週會…」；60 秒 → 一整段有開場有結尾的假會議）。所以 `transcribeGemini()` 先用
+  `pcmRms()`（`server/transcript-guard.ts`）量音量，低於 `SILENCE_RMS = 0.002` 就不送 API，
+  直接標成失敗並說明。正常說話 RMS 約 0.07，會議室底噪約 0.001，門檻不會誤殺小聲說話。
+- **錄音頁的音量表以前永遠是 0**：`public/pcm-worklet.js` 的 `process()` 只把資料送去
+  `port.postMessage`，沒有寫 `outputs`，所以 analyser 收到的永遠是靜音。現在會把輸入原樣
+  複製到輸出（後面接 0 增益，不會從喇叭放出來），音量條才真的會動；連續 20 秒幾乎沒聲音
+  也會跳一次提示。
+- **刪會議要一併收掉 live session**：以前 `DELETE /api/meetings/:id` 只刪資料夾，記憶體裡的
+  `LiveSession` 之後存檔會把資料夾又寫回來。現在先 `dispose()` 再刪。
 - **Gemini 免費層 429 很常見**，尤其是連續跑好幾段。`transcribeUploadedFile()` 內建
   503 等 15/30 秒、429 等 60 秒的重試；重試用盡就是真的額度問題。
 

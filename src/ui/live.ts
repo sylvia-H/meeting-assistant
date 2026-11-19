@@ -99,6 +99,8 @@ export function renderLive(id: string): View {
   let raf = 0;
   let ending = false;
   let destroyed = false;
+  let quietSince = 0;
+  let quietWarned = false;
 
   // ── 連線 ────────────────────────────────────────────────
   function connect(): void {
@@ -220,6 +222,19 @@ export function renderLive(id: string): View {
       if (!mic || destroyed) return;
       const level = micEnabled ? mic.level() : 0;
       meterBar.style.width = `${Math.round(level * 100)}%`;
+      // 連續 20 秒幾乎沒聲音就提醒一次：靜音送出去 Gemini 會自己編一份假逐字稿
+      if (micEnabled) {
+        if (level < 0.01) {
+          if (!quietSince) quietSince = performance.now();
+          else if (!quietWarned && performance.now() - quietSince > 20_000) {
+            quietWarned = true;
+            toast('麥克風幾乎沒有收到聲音：確認輸入裝置有沒有選錯，或麥克風是不是靜音。', 'error', 10_000);
+          }
+        } else {
+          quietSince = 0;
+          quietWarned = false;
+        }
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -227,6 +242,8 @@ export function renderLive(id: string): View {
 
   function teardownMic(): void {
     micEnabled = false;
+    quietSince = 0;
+    quietWarned = false;
     cancelAnimationFrame(raf);
     meterBar.style.width = '0%';
     mic?.stop();

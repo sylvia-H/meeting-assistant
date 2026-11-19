@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Meeting, NoteKind, Segment, ServerMessage } from '../src/core/protocol.ts';
 import { settings } from './config.ts';
 import { transcribePcm, DailyQuotaError, geminiModelChain } from './gemini.ts';
+import { SILENCE_RMS, pcmRms } from './transcript-guard.ts';
 import { emptySegment, meetingDir, newNote, saveMeeting, writeNotes, writeTranscript } from './store.ts';
 
 const BYTES_PER_SEC = 32000; // 16000 Hz × 16-bit × 1ch
@@ -460,6 +461,25 @@ export class LiveSession {
     const pcm = Buffer.concat(ch.queue);
     ch.queue = [];
     ch.queueBytes = 0;
+
+    // 麥克風沒收到聲音時 PCM 幾乎全是 0。Gemini 碰到靜音不會回空字串，而是自己編一份
+    // 煞有其事的會議逐字稿（實測 11 秒數位靜音 → 「大家早安，我們現在開始今天的週會…」），
+    // 所以先量音量，太安靜就跳過，寧可留白也不要假內容。
+    const rms = pcmRms(pcm);
+    if (rms < SILENCE_RMS) {
+      seg.transcript = '';
+      seg.durationSeconds = Math.round(pcm.length / BYTES_PER_SEC);
+      seg.status = 'failed';
+      seg.error = `這段幾乎沒有聲音（音量 ${rms.toFixed(4)}），麥克風可能沒收到。已跳過轉錄，避免 Gemini 自己編一份假逐字稿。`;
+      seg.endedAt = seg.endedAt ?? new Date().toISOString();
+      this.send({
+        type: 'error',
+        message: `第 ${seg.index + 1} 段沒有收到聲音（音量 ${rms.toFixed(4)}）：確認麥克風有沒有選錯或靜音。`,
+      });
+      this.settle(seg);
+      this.afterSegment(seg);
+      return;
+    }
 
     const s = settings();
     // 免費層的每日額度是「每個模型分開算」：主模型用完就換下一顆，同一段音訊重送，

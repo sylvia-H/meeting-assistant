@@ -16,9 +16,14 @@ class PCMProcessor extends AudioWorkletProcessor {
     };
   }
 
-  process(inputs) {
+  process(inputs, outputs) {
     const channel = inputs[0]?.[0];
     if (!channel || channel.length === 0) return true;
+
+    // 把收到的聲音原樣送到輸出（後面接的是 0 增益，不會從喇叭放出來），
+    // 這樣 analyser 才量得到音量；不然錄音頁的音量表永遠是 0。
+    const out = outputs[0]?.[0];
+    if (out) out.set(channel.subarray(0, Math.min(out.length, channel.length)));
 
     const n = channel.length;
     let i = this.pos;

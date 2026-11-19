@@ -194,6 +194,9 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       return;
     }
     if (method === 'DELETE' && parts.length === 3) {
+      // 先收掉進行中的連線，否則那個 session 之後存檔會把資料夾又寫回來
+      sessions.get(id)?.dispose();
+      sessions.delete(id);
       await deleteMeeting(id);
       sendJson(res, 200, { ok: true });
       return;

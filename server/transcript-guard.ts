@@ -52,3 +52,22 @@ export function cutRunawayRepeat(text: string): RepeatCut {
   }
   return { text, cut: false, times: 0 };
 }
+
+/**
+ * 靜音門檻：低於這個 RMS 就當作「麥克風沒收到聲音」。
+ * 實測：Windows TTS 的正常說話 RMS ≈ 0.077，數位靜音是 0；一般會議室底噪約 0.001。
+ * 取 0.002 只擋掉「幾乎全零」的音訊，不會誤殺小聲說話。
+ */
+export const SILENCE_RMS = 0.002;
+
+/** 16-bit PCM 的 RMS（0–1）。用來判斷這一段到底有沒有收到聲音。 */
+export function pcmRms(pcm: Buffer): number {
+  const samples = Math.floor(pcm.length / 2);
+  if (samples === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < samples; i += 1) {
+    const value = pcm.readInt16LE(i * 2) / 32768;
+    sum += value * value;
+  }
+  return Math.sqrt(sum / samples);
+}
