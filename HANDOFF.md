@@ -90,6 +90,15 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
 - 這同時是使用者層級的保險：就算 WebSocket 斷線，也不會卡在「收尾中…」。
 - e2e 的結束步驟加上「沒跳頁就再點一次」與失敗診斷（頁面狀態＋伺服器 segment 狀態＋console）。
 
+### 7. 純 `.env` 設定與只綁本機
+
+- `server/config.ts` 新增 `TRANSCRIBER=gemini|typeless`：引擎也能只靠 `.env` 決定。
+  優先序不變：設定頁（`settings.json`）> `.env` > 預設。
+- `server/index.ts` 的 `listen()` 改成預設 `127.0.0.1`。原本沒給 host，Node 會綁 `::`，
+  同一個 Wi-Fi 下的裝置其實連得到（app 沒有登入機制）。要開放才設 `HOST=0.0.0.0`。
+- `.env.example`、`README.md` 補上：兩邊都填時設定頁優先、改 `.env` 要重啟、
+  key 只存在伺服器端，瀏覽器只拿得到 `••••1234` 遮罩。
+
 ## 待辦（只剩這些）
 
 1. **用真的 Gemini key 跑一場 20–30 分鐘會議**（<https://aistudio.google.com/apikey>）：
@@ -150,12 +159,16 @@ meetings/
 - headless 瀏覽器的 `#/xxx` 導覽不會觸發 load 事件（已修在 `cdp.ts`）。
 - `text-wrap: pretty` 對中文幾乎無效；孤行一律先用 `text-wrap: balance`。
 - 多個非同步流程可能同時寫 `meeting.json`；atomic 暫存檔名一定要唯一。
+- `server.listen(port)` 沒給 host 會綁所有網路介面；本專案已明確綁 `127.0.0.1`。
 - 版控已初始化（`main`，first commit `4c37ce6`）；`.gitignore` 已排除 `.env`、
   `server/.data/`、`meetings/`、`dist/`、`preview/`。
 
 ## 試跑前你需要準備
 
 - Gemini API key：<https://aistudio.google.com/apikey>（免費層即可）
+- 不想在瀏覽器貼 key：把 `.env.example` 複製成 `.env`，填 `GEMINI_API_KEY`，
+  再加 `TRANSCRIBER=gemini` 與 `GEMINI_TRANSCRIBE_MODEL=gemini-2.5-flash`，
+  重啟 `npm run dev`。設定頁留白時才會用 `.env`。
 - 摘要可以也用 Gemini（同一把 key），或填 Claude / OpenAI
 - 逐字稿**只會在切段後出現**，這是兩個引擎共同的限制，不是 bug
 - 免費層的內容可能被用於改善服務；敏感的會議請改用付費 key

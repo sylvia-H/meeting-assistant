@@ -30,6 +30,9 @@ import { pingGemini } from './gemini.ts';
 import { LiveSession } from './relay.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
+// 預設只綁本機迴路：同一個 Wi-Fi 下的其他裝置不該能打開你的會議、用你的額度。
+// 真的要用平板／手機連進來再設 HOST=0.0.0.0（後果自負：沒有任何登入機制）。
+const HOST = process.env.HOST || '127.0.0.1';
 const DIST = path.join(projectRoot, 'dist');
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -419,8 +422,9 @@ async function openLive(id: string, ws: import('ws').WebSocket): Promise<void> {
   });
 }
 
-server.listen(PORT, () => {
-  console.log(`[meeting-assistant] API  http://127.0.0.1:${PORT}`);
+server.listen(PORT, HOST, () => {
+  const shown = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
+  console.log(`[meeting-assistant] API  http://${shown}:${PORT}`);
   console.log(`[meeting-assistant] 會議資料夾  ${path.resolve(projectRoot, settings().meetingsDir)}`);
   if (!existsSync(DIST)) console.log('[meeting-assistant] 開發模式：前端請開 http://localhost:5173');
 });

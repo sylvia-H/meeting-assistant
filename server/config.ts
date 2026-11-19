@@ -103,7 +103,12 @@ export function settings(): Settings {
     openai: file.llmModels?.openai ?? DEFAULT_MODELS.openai,
     gemini: file.llmModels?.gemini ?? DEFAULT_MODELS.gemini,
   };
-  const transcriber: TranscriberKind = file.transcriber === 'gemini' ? 'gemini' : 'typeless';
+  const transcriber: TranscriberKind =
+    file.transcriber === 'gemini' || file.transcriber === 'typeless'
+      ? file.transcriber
+      : env.TRANSCRIBER === 'gemini'
+        ? 'gemini'
+        : 'typeless';
   const typelessModel = file.typelessModel || 'typeless-1.0-pro';
   const geminiModel = file.transcribeModel || env.GEMINI_TRANSCRIBE_MODEL || DEFAULT_GEMINI_TRANSCRIBE_MODEL;
   // 一把 Gemini key 同時給轉錄與摘要用；優先序：專用欄位 > 環境變數 > LLM 的 Gemini key
