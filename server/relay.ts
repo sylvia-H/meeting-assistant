@@ -3,7 +3,7 @@ import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import type { Meeting, NoteKind, Segment, ServerMessage } from '../src/core/protocol.ts';
 import { settings } from './config.ts';
-import { transcribePcm } from './gemini.ts';
+import { transcribePcm, DailyQuotaError, geminiModelChain } from './gemini.ts';
 import { emptySegment, meetingDir, newNote, saveMeeting, writeNotes, writeTranscript } from './store.ts';
 
 const BYTES_PER_SEC = 32000; // 16000 Hz × 16-bit × 1ch
@@ -461,21 +461,58 @@ export class LiveSession {
     ch.queue = [];
     ch.queueBytes = 0;
 
-    try {
-      const text = await transcribePcm(pcm, {
-        apiKey: settings().geminiApiKey,
-        model: this.meeting.transcribeModel,
-        language: this.meeting.language,
-      });
-      seg.transcript = text;
-      seg.durationSeconds = Math.round(pcm.length / BYTES_PER_SEC);
-      seg.billedSeconds = null; // Gemini 免費額度不按秒計價
-      seg.requestId = null;
-      seg.status = 'done';
-      seg.endedAt = seg.endedAt ?? new Date().toISOString();
-    } catch (err) {
+    const s = settings();
+    // 免費層的每日額度是「每個模型分開算」：主模型用完就換下一顆，同一段音訊重送，
+    // 不要讓使用者眼睜睜看這段音訊被丟掉。
+    const chain = geminiModelChain(this.meeting.transcribeModel || s.transcribeModel);
+    const quotaOut: string[] = [];
+    let lastError: unknown = null;
+    let done = false;
+
+    for (const model of chain) {
+      try {
+        const text = await transcribePcm(pcm, {
+          apiKey: s.geminiApiKey,
+          model,
+          language: this.meeting.language,
+        });
+        seg.transcript = text;
+        seg.durationSeconds = Math.round(pcm.length / BYTES_PER_SEC);
+        seg.billedSeconds = null; // Gemini 免費額度不按秒計價
+        seg.requestId = null;
+        seg.status = 'done';
+        seg.endedAt = seg.endedAt ?? new Date().toISOString();
+        done = true;
+
+        // 換了模型就寫回會議：下一段直接從新的開始，不用再撞一次 429
+        if (model !== this.meeting.transcribeModel) {
+          const from = this.meeting.transcribeModel;
+          this.meeting.transcribeModel = model;
+          this.queuePersist();
+          this.send({
+            type: 'notice',
+            message: `${from} 今天的額度用完了，第 ${seg.index + 1} 段起改用 ${model}（同一段音訊直接重送，沒有漏掉）。`,
+          });
+        }
+        break;
+      } catch (err) {
+        lastError = err;
+        if (err instanceof DailyQuotaError) {
+          quotaOut.push(model);
+          continue; // 換下一顆模型重送同一段音訊
+        }
+        break;
+      }
+    }
+
+    if (!done) {
       seg.status = 'failed';
-      seg.error = err instanceof Error ? err.message : String(err);
+      seg.error =
+        quotaOut.length === chain.length
+          ? `Gemini 免費層今天所有轉錄模型都用完了（${quotaOut.join('、')}）。太平洋時間午夜（台灣下午 3–4 點）重置，或到設定頁換付費 key。`
+          : lastError instanceof Error
+            ? lastError.message
+            : String(lastError ?? '轉錄失敗');
       seg.endedAt = seg.endedAt ?? new Date().toISOString();
       this.send({ type: 'error', message: `第 ${seg.index + 1} 段轉錄失敗：${seg.error}` });
     }

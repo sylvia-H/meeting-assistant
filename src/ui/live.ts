@@ -118,7 +118,8 @@ export function renderLive(id: string): View {
         | { type: 'segment'; segment: Segment }
         | { type: 'note'; note: MeetingNote }
         | { type: 'ended'; meeting: Meeting }
-        | { type: 'error'; message: string };
+        | { type: 'error'; message: string }
+        | { type: 'notice'; message: string };
 
       switch (msg.type) {
         case 'hello':
@@ -171,6 +172,9 @@ export function renderLive(id: string): View {
           break;
         case 'error':
           toast(msg.message, 'error', 6000);
+          break;
+        case 'notice':
+          toast(msg.message, 'info', 9000);
           break;
       }
     });

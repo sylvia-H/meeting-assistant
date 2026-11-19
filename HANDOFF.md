@@ -222,6 +222,16 @@ meetings/
   20 次時，`gemini-3.1-flash-lite` 與 `gemini-flash-lite-latest` 仍可用）。2 小時會議要 9 段、
   加上重試很容易把當日額度用完；額度是太平洋時間午夜重置（台灣下午 3–4 點）。
   `friendly()` 會分辨「每分鐘限流」與「每日用完」，後者不再重試，直接說明白等明天。
+- **現場錄音會自動換模型**：`server/relay.ts` 的 `transcribeGemini()` 用
+  `geminiModelChain()`（`server/gemini.ts`）排出「主模型 → 另一顆備援」，遇到
+  `DailyQuotaError`（`PerDay` 429）就把**同一段音訊**換下一顆重送，成功後把新模型寫回
+  `meeting.json`，後面幾段直接用它，並在畫面跳一則提示。備援只有
+  `gemini-flash-lite-latest` 與 `gemini-3-flash-preview` 兩顆（另外兩顆長音檔會出問題）。
+  代價是：主模型用完時那一段會多一次 429 往返（約 0.2 秒）。
+  注意「設定頁換模型」對進行中的會議仍然無效（模型在第一段就固定了），這是下一步要改的。
+- **中斷的段落會標成失敗**：`openLive()` 在連線進來時，把還停在 `open` 的段落改標
+  `failed / 連線中斷，這段音訊沒有留下`。那段 PCM 只存在被中斷的行程記憶體裡，
+  本來就救不回來，標失敗才不會讓畫面永遠掛著「收音中」。
 - **Gemini 免費層 429 很常見**，尤其是連續跑好幾段。`transcribeUploadedFile()` 內建
   503 等 15/30 秒、429 等 60 秒的重試；重試用盡就是真的額度問題。
 

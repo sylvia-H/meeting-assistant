@@ -79,6 +79,33 @@ export function isDailyQuota(body: string): boolean {
 }
 
 /**
+ * 「今天的免費額度用完」跟「這一分鐘送太多」不一樣：前者換一顆模型就有新額度，
+ * 所以用獨立的錯誤型別，讓呼叫端知道可以換模型重送同一段音訊。
+ */
+export class DailyQuotaError extends Error {
+  readonly model: string;
+
+  constructor(model: string, message: string) {
+    super(message);
+    this.name = 'DailyQuotaError';
+    this.model = model;
+  }
+}
+
+/**
+ * 現場錄音的備援順序：主模型當日額度用完時，同一段音訊換下一顆重送。
+ * 只收「短音訊表現正常」的兩顆；gemini-3.1-flash-lite 長音檔會卡在重複同一句、
+ * gemini-flash-latest 會先思考很久，都不適合當備援。
+ */
+export const GEMINI_LIVE_FALLBACKS = ['gemini-flash-lite-latest', 'gemini-3-flash-preview'] as const;
+
+/** 回傳「先試這顆、再試備援」的模型順序，去重並保留原始順序。 */
+export function geminiModelChain(primary: string): string[] {
+  const chain = [primary, ...GEMINI_LIVE_FALLBACKS].filter((model) => model.trim() !== '');
+  return chain.filter((model, index) => chain.indexOf(model) === index);
+}
+
+/**
  * 模型偶爾會自己加一句開場白再開始逐字稿。實測長這樣：
  *   好的，以下是該音訊的完整逐字稿：
  *   好的，以下是該段音訊的完整逐字稿：
@@ -130,7 +157,11 @@ export async function transcribePcm(pcm: Buffer, options: TranscribeOptions): Pr
   });
 
   const text = await res.text();
-  if (!res.ok) throw new Error(friendly(res.status, text));
+  if (!res.ok) {
+    // 每日額度用完是可恢復的：換一顆模型就有新的 20 次，所以讓呼叫端認得出這個情況
+    if (res.status === 429 && isDailyQuota(text)) throw new DailyQuotaError(model, friendly(res.status, text));
+    throw new Error(friendly(res.status, text));
+  }
 
   let data: {
     candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];

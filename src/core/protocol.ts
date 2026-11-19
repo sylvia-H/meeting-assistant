@@ -101,7 +101,9 @@ export type ServerMessage =
   | { type: 'segment'; segment: Segment }
   | { type: 'note'; note: MeetingNote }
   | { type: 'ended'; meeting: Meeting }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  /** 不算錯誤的提醒（例如額度用完自動換模型），前端用一般提示顯示 */
+  | { type: 'notice'; message: string };
 
 export const TYPELESS_MODELS = [
   { id: 'typeless-1.0-lite', label: 'Lite · $0.25 / 小時' },

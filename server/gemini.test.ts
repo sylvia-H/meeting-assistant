@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pcmToWav, cleanText } from './gemini.ts';
+import { pcmToWav, cleanText, geminiModelChain } from './gemini.ts';
 
 test('pcmToWav 產生 16 kHz / 16-bit / mono 的 WAV 檔頭', () => {
   const pcm = Buffer.alloc(3200, 7); // 100 ms
@@ -43,4 +43,27 @@ test('cleanText 不會砍到內文的「以下是」', () => {
 
 test('cleanText 去掉 code fence 後再砍開場白', () => {
   assert.equal(cleanText('```text\n好的，以下是逐字稿：\n今天討論後台設定。\n```'), '今天討論後台設定。');
+});
+
+test('額度用完時，模型順序會接上另一顆備援（不重複自己）', () => {
+  assert.deepEqual(geminiModelChain('gemini-3-flash-preview'), [
+    'gemini-3-flash-preview',
+    'gemini-flash-lite-latest',
+  ]);
+  assert.deepEqual(geminiModelChain('gemini-flash-lite-latest'), [
+    'gemini-flash-lite-latest',
+    'gemini-3-flash-preview',
+  ]);
+});
+
+test('不在備援清單裡的模型排最前面，後面仍接兩顆備援', () => {
+  assert.deepEqual(geminiModelChain('gemini-3.1-flash-lite'), [
+    'gemini-3.1-flash-lite',
+    'gemini-flash-lite-latest',
+    'gemini-3-flash-preview',
+  ]);
+});
+
+test('沒有指定模型時（空字串）不會留下空的模型 id', () => {
+  assert.deepEqual(geminiModelChain('  '), ['gemini-flash-lite-latest', 'gemini-3-flash-preview']);
 });

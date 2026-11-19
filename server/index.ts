@@ -373,6 +373,19 @@ async function openLive(id: string, ws: import('ws').WebSocket): Promise<void> {
   const previous = sessions.get(id);
   if (previous) previous.dispose();
 
+  // 上一次連線如果是被中斷的（伺服器重啟、分頁直接關掉），當時正在錄的那一段音訊
+  // 只在記憶體裡，永遠不會有結果；標成失敗，免得畫面一直掛著「收音中」。
+  let orphans = false;
+  for (const seg of meeting.segments) {
+    if (seg.status === 'open' && !seg.transcript.trim()) {
+      seg.status = 'failed';
+      seg.error = seg.error ?? '連線中斷，這段音訊沒有留下';
+      seg.endedAt = seg.endedAt ?? new Date().toISOString();
+      orphans = true;
+    }
+  }
+  if (orphans) await saveMeeting(meeting);
+
   const session = new LiveSession(meeting, send);
   sessions.set(id, session);
   send({ type: 'hello', meeting, state: session.state() });
