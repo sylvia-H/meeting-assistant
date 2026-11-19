@@ -119,6 +119,11 @@ code {
   gap: 16px;
 }
 
+/* 紀錄頁是長文：頁面不用滿版，卡片貼著文字才不會右半邊空一片 */
+.page.result {
+  max-width: 860px;
+}
+
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -549,7 +554,8 @@ textarea {
 
 .seg p {
   margin: 0 0 8px;
-  max-width: 38em;
+  /* 逐字稿是連續內文，行長收在 42 字（約 630px）比會議紀錄再窄一點 */
+  max-width: 42em;
 }
 
 .recording::before {
@@ -679,7 +685,8 @@ textarea {
 }
 
 .markdown {
-  max-width: 38em;
+  /* 會議紀錄有表格與清單，比純內文容忍長一點的行：44 字 ≈ 660px */
+  max-width: 44em;
   font-size: 15px;
 }
 
