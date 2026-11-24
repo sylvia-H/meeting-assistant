@@ -2,7 +2,7 @@ import type { ClientMessage, LiveState, Meeting, MeetingNote, Segment } from '..
 import { TYPELESS_PRICE_PER_HOUR } from '../core/protocol.ts';
 import { estimateCost, formatClock, formatDuration } from '../core/format.ts';
 import { NOTE_KINDS, kindMeta, parseInput } from '../core/notes.ts';
-import { startMic, type MicHandle } from './audio.ts';
+import { startCapture, type MicHandle } from './audio.ts';
 import { getMeeting } from './api.ts';
 import { el, escapeHtml, q, toast } from './dom.ts';
 import { errorText, type View } from './home.ts';
@@ -25,7 +25,16 @@ export function renderLive(id: string): View {
       </div>
       <div class="live-clock">
         <span id="timer">0:00</span>
-        <div class="meter"><div id="meter-bar"></div></div>
+        <div class="meter" title="收音音量"><div id="meter-bar"></div></div>
+      </div>
+      <div class="live-source">
+        <label class="sr-only" for="audio-source">音訊來源</label>
+        <select id="audio-source" title="音訊來源">
+          <option value="mic">麥克風</option>
+          <option value="mic+system">麥克風＋會議音訊</option>
+          <option value="system">只有會議音訊</option>
+        </select>
+        <span id="mic-label" class="source-label">尚未收音</span>
       </div>
       <div class="live-actions">
         <button class="primary" id="btn-start" type="button">開始錄音</button>
@@ -79,6 +88,8 @@ export function renderLive(id: string): View {
   const transcribeNote = q<HTMLElement>(root, '#transcribe-note');
   const timerEl = q<HTMLElement>(root, '#timer');
   const meterBar = q<HTMLElement>(root, '#meter-bar');
+  const sourceSelect = q<HTMLSelectElement>(root, '#audio-source');
+  const micLabel = q<HTMLElement>(root, '#mic-label');
   const btnStart = q<HTMLButtonElement>(root, '#btn-start');
   const btnPause = q<HTMLButtonElement>(root, '#btn-pause');
   const btnCut = q<HTMLButtonElement>(root, '#btn-cut');
@@ -202,17 +213,70 @@ export function renderLive(id: string): View {
     ws.send(JSON.stringify(msg));
   }
 
-  // ── 麥克風 ──────────────────────────────────────────────
+  // ── 音訊來源 ────────────────────────────────────────────
+  const SOURCE_KEY = 'meeting-assistant.audio-source';
+  type SourceMode = 'mic' | 'mic+system' | 'system';
+
+  function savedSource(): SourceMode {
+    const raw = localStorage.getItem(SOURCE_KEY);
+    return raw === 'mic+system' || raw === 'system' ? raw : 'mic';
+  }
+
+  function setSource(mode: SourceMode, persist: boolean): void {
+    sourceSelect.value = mode;
+    if (persist) localStorage.setItem(SOURCE_KEY, mode);
+  }
+
+  function openCapture(mode: SourceMode): Promise<MicHandle> {
+    return startCapture(
+      { mic: mode !== 'system', system: mode !== 'mic' },
+      (frame) => {
+        if (ws?.readyState === WebSocket.OPEN) ws.send(frame);
+      },
+      onCaptureEnded,
+    );
+  }
+
+  /** 使用者在 Chrome 的分享列按「停止分享」，只有分享的那條音軌會結束，麥克風還在。 */
+  function onCaptureEnded(label: string, kind: 'mic' | 'system'): void {
+    if (destroyed) return;
+    if (kind === 'mic') {
+      micLabel.textContent = '麥克風已中斷';
+      toast(`麥克風斷了（${label}）：確認裝置有沒有被拔掉，或換一個輸入裝置後重新開始錄音。`, 'error', 10_000);
+      return;
+    }
+    micLabel.textContent = '分享已停止';
+    if (sourceSelect.value !== 'mic') {
+      setSource('mic', true);
+      toast(`會議音訊已停止分享（${label}），之後只會收到麥克風。`, 'info', 9000);
+    }
+  }
+
   async function armMic(): Promise<void> {
     if (mic) {
       mic.setEnabled(true);
       micEnabled = true;
       return;
     }
-    mic = await startMic((frame) => {
-      if (ws?.readyState === WebSocket.OPEN) ws.send(frame);
-    });
+    const mode = sourceSelect.value as SourceMode;
+    try {
+      mic = await openCapture(mode);
+    } catch (err) {
+      if (mode === 'mic') throw err;
+      // 分享被取消、或分享時沒勾音訊：退回只收麥克風，至少還錄得到自己的聲音
+      const reason = errorText(err);
+      try {
+        mic = await openCapture('mic');
+      } catch (micErr) {
+        throw new Error(`會議音訊：${reason}；麥克風：${errorText(micErr)}`);
+      }
+      setSource('mic', true);
+      toast(`沒拿到會議音訊（${reason}），這場先只收麥克風。`, 'error', 10_000);
+    }
     micEnabled = true;
+    sourceSelect.disabled = true;
+    micLabel.textContent = mic.label;
+    micLabel.title = mic.label;
     loopLevel();
   }
 
@@ -228,7 +292,11 @@ export function renderLive(id: string): View {
           if (!quietSince) quietSince = performance.now();
           else if (!quietWarned && performance.now() - quietSince > 20_000) {
             quietWarned = true;
-            toast('麥克風幾乎沒有收到聲音：確認輸入裝置有沒有選錯，或麥克風是不是靜音。', 'error', 10_000);
+            toast(
+              '已經 20 秒幾乎沒有收到聲音：確認麥克風有沒有選錯或靜音；分享會議音訊時要勾「分享音訊」。',
+              'error',
+              10_000,
+            );
           }
         } else {
           quietSince = 0;
@@ -248,13 +316,16 @@ export function renderLive(id: string): View {
     meterBar.style.width = '0%';
     mic?.stop();
     mic = null;
+    sourceSelect.disabled = false;
+    micLabel.textContent = '尚未收音';
+    micLabel.title = '';
   }
 
   async function startRecording(): Promise<void> {
     try {
       await armMic();
     } catch (err) {
-      toast(`拿不到麥克風：${errorText(err)}`, 'error', 6000);
+      toast(`拿不到音訊：${errorText(err)}`, 'error', 6000);
       return;
     }
     const status = meeting?.status;
@@ -484,7 +555,11 @@ export function renderLive(id: string): View {
     input.focus();
   });
   btnEnd.addEventListener('click', () => void endMeeting());
+  sourceSelect.addEventListener('change', () => {
+    setSource(sourceSelect.value as SourceMode, true);
+  });
 
+  setSource(savedSource(), false);
   connect();
   input.focus();
 
