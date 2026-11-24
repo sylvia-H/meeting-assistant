@@ -37,13 +37,13 @@ npm start
 到右上「**設定**」頁：
 
 1. **選轉錄引擎**
-   - **Gemini（免費額度）** — 貼上 Gemini API key，模型先用 `gemini-2.5-flash`。
+   - **Gemini（免費額度）** — 貼上 Gemini API key，模型先用預設的 `gemini-3-flash-preview`（速度與品質最平衡）。
      免費層的每日請求數與每分鐘次數以 Google 官方公告為準；免費層的內容可能被用於改善服務，
      敏感的會議請改用付費 key。
    - **Typeless（付費）** — 貼上 `tls_sk_...`，選模型：
      Lite `$0.25/小時`、Pro `$0.50/小時`、Max `$2.50/小時`。一般中文會議用 **Pro** 就夠。
 2. **摘要用的 LLM** — 選供應商、模型、貼 key。
-   - 建議 `claude-sonnet-4-5` 或 `gpt-5`
+   - 建議 `claude-opus-5-5`（要省錢選 `claude-sonnet-5-5`）或 `gpt-5`
    - 選 Gemini 時可以留白，直接沿用上面轉錄的 Gemini key
 
 填好後，首頁右上角就不會再顯示「未設定」的提醒。
