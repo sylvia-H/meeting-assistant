@@ -637,7 +637,7 @@ export function renderLive(id: string): View {
    * 這裡同時輪詢 API，伺服器說結束了就自己跳頁。
    */
   async function watchEnded(): Promise<void> {
-    for (let i = 0; i < 150; i += 1) {
+    for (let i = 0; i < 200; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       if (destroyed || location.hash.startsWith('#/meeting/')) return;
       try {

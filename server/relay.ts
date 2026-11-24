@@ -3,7 +3,8 @@ import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import type { Meeting, NoteKind, Segment, ServerMessage } from '../src/core/protocol.ts';
 import { settings } from './config.ts';
-import { transcribePcm, DailyQuotaError, geminiModelChain } from './gemini.ts';
+import { transcribePcm, geminiModelChain } from './gemini.ts';
+import { transcribeLiveSegment } from './live-transcribe.ts';
 import { pcmLevels, silenceReason } from './transcript-guard.ts';
 import { emptySegment, meetingDir, newNote, saveMeeting, writeNotes, writeTranscript } from './store.ts';
 
@@ -210,7 +211,8 @@ export class LiveSession {
       this.pausedAt = null;
     }
     this.detachCurrent();
-    await this.waitAll(120_000);
+    // 一段最壞要重試＋換模型＋切半重送，留 3 分鐘給最後幾段收尾
+    await this.waitAll(180_000);
     this.meeting.status = 'ended';
     this.meeting.endedAt = new Date().toISOString();
     this.closeSink();
@@ -504,57 +506,43 @@ export class LiveSession {
     }
 
     const s = settings();
-    // 免費層的每日額度是「每個模型分開算」：主模型用完就換下一顆，同一段音訊重送，
-    // 不要讓使用者眼睜睜看這段音訊被丟掉。
-    const chain = geminiModelChain(this.meeting.transcribeModel || s.transcribeModel);
-    const quotaOut: string[] = [];
-    let lastError: unknown = null;
-    let done = false;
-
-    for (const model of chain) {
-      try {
-        const text = await transcribePcm(pcm, {
-          apiKey: s.geminiApiKey,
-          model,
-          language: this.meeting.language,
+    // 重試、換模型、鬼打牆切半重送都在 transcribeLiveSegment() 裡（見 server/live-transcribe.ts）
+    const primary = this.meeting.transcribeModel || s.transcribeModel;
+    const chain = geminiModelChain(primary);
+    try {
+      const result = await transcribeLiveSegment(pcm, chain, {
+        transcribe: (audio, model) =>
+          transcribePcm(audio, { apiKey: s.geminiApiKey, model, language: this.meeting.language }),
+        onNotice: (message) => this.send({ type: 'notice', message: `第 ${seg.index + 1} 段：${message}` }),
+      });
+      seg.transcript = result.text;
+      seg.durationSeconds = Math.round(pcm.length / BYTES_PER_SEC);
+      seg.billedSeconds = null; // Gemini 免費額度不按秒計價
+      seg.requestId = null;
+      seg.status = 'done';
+      seg.endedAt = seg.endedAt ?? new Date().toISOString();
+      if (result.trimmed) {
+        this.send({
+          type: 'notice',
+          message: `第 ${seg.index + 1} 段模型卡在重複同一句，已砍掉重複的部分；中間可能漏幾句，可以直接在逐字稿上補。`,
         });
-        seg.transcript = text;
-        seg.durationSeconds = Math.round(pcm.length / BYTES_PER_SEC);
-        seg.billedSeconds = null; // Gemini 免費額度不按秒計價
-        seg.requestId = null;
-        seg.status = 'done';
-        seg.endedAt = seg.endedAt ?? new Date().toISOString();
-        done = true;
+      }
 
-        // 換了模型就寫回會議：下一段直接從新的開始，不用再撞一次 429
-        if (model !== this.meeting.transcribeModel) {
-          const from = this.meeting.transcribeModel;
-          this.meeting.transcribeModel = model;
+      // 只有「每日額度用完」才改會議的主模型；503 臨時換的備援只用在這一段
+      if (result.quotaExhausted.includes(primary)) {
+        const next = chain.find((model) => !result.quotaExhausted.includes(model));
+        if (next && next !== primary) {
+          this.meeting.transcribeModel = next;
           this.queuePersist();
           this.send({
             type: 'notice',
-            message: `${from} 今天的額度用完了，第 ${seg.index + 1} 段起改用 ${model}（同一段音訊直接重送，沒有漏掉）。`,
+            message: `${primary} 今天的額度用完了，第 ${seg.index + 1} 段起改用 ${next}（同一段音訊直接重送，沒有漏掉）。`,
           });
         }
-        break;
-      } catch (err) {
-        lastError = err;
-        if (err instanceof DailyQuotaError) {
-          quotaOut.push(model);
-          continue; // 換下一顆模型重送同一段音訊
-        }
-        break;
       }
-    }
-
-    if (!done) {
+    } catch (err) {
       seg.status = 'failed';
-      seg.error =
-        quotaOut.length === chain.length
-          ? `Gemini 免費層今天所有轉錄模型都用完了（${quotaOut.join('、')}）。太平洋時間午夜（台灣下午 3–4 點）重置，或到設定頁換付費 key。`
-          : lastError instanceof Error
-            ? lastError.message
-            : String(lastError ?? '轉錄失敗');
+      seg.error = err instanceof Error ? err.message : String(err ?? '轉錄失敗');
       seg.endedAt = seg.endedAt ?? new Date().toISOString();
       this.send({ type: 'error', message: `第 ${seg.index + 1} 段轉錄失敗：${seg.error}` });
     }

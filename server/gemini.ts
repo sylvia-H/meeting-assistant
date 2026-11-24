@@ -93,6 +93,36 @@ export class DailyQuotaError extends Error {
 }
 
 /**
+ * Google 那邊暫時忙不過來（503／500／502／504）或「這一分鐘送太快」（非每日額度的 429）。
+ * 等一下再送同一段通常就會過，所以跟一般錯誤分開，讓呼叫端知道可以重試。
+ */
+export class TransientGeminiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'TransientGeminiError';
+    this.status = status;
+  }
+}
+
+/**
+ * 輸出撞到 maxOutputTokens。現場一段只有幾分鐘，正常講話碰不到上限，
+ * 幾乎都是模型卡在重複同一句；`partial` 是已經吐出來的文字，前面通常是對的。
+ */
+export class MaxTokensError extends Error {
+  readonly partial: string;
+
+  constructor(partial: string) {
+    super('這段逐字稿超過 Gemini 的輸出上限（模型可能卡在重複同一句）。');
+    this.name = 'MaxTokensError';
+    this.partial = partial;
+  }
+}
+
+const TRANSIENT_STATUS = new Set([500, 502, 503, 504]);
+
+/**
  * 現場錄音的備援順序：主模型當日額度用完時，同一段音訊換下一顆重送。
  * 只收「短音訊表現正常」的兩顆；gemini-3.1-flash-lite 長音檔會卡在重複同一句、
  * gemini-flash-latest 會先思考很久，都不適合當備援。
@@ -137,29 +167,39 @@ export async function transcribePcm(pcm: Buffer, options: TranscribeOptions): Pr
   const url = `${baseUrl()}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const language = options.language === 'en' ? '音訊可能是英文，請依實際語言轉錄。' : '';
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-goog-api-key': options.apiKey },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { mimeType: 'audio/wav', data: pcmToWav(pcm).toString('base64') } },
-            { text: `${language}\n請轉錄這段會議音訊。`.trim() },
-          ],
-        },
-      ],
-      generationConfig: { temperature: 0, maxOutputTokens: 8192 },
-    }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': options.apiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType: 'audio/wav', data: pcmToWav(pcm).toString('base64') } },
+              { text: `${language}\n請轉錄這段會議音訊。`.trim() },
+            ],
+          },
+        ],
+        generationConfig: { temperature: 0, maxOutputTokens: 8192 },
+      }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    // 連線被重置、DNS 抖一下這類網路錯誤也值得再送一次；逾時則不重試（再等 90 秒太久）
+    if (err instanceof TypeError) throw new TransientGeminiError(0, `連不上 Gemini：${err.message}`);
+    throw err;
+  }
 
   const text = await res.text();
   if (!res.ok) {
     // 每日額度用完是可恢復的：換一顆模型就有新的 20 次，所以讓呼叫端認得出這個情況
     if (res.status === 429 && isDailyQuota(text)) throw new DailyQuotaError(model, friendly(res.status, text));
+    if (res.status === 429 || TRANSIENT_STATUS.has(res.status)) {
+      throw new TransientGeminiError(res.status, friendly(res.status, text));
+    }
     throw new Error(friendly(res.status, text));
   }
 
@@ -184,9 +224,7 @@ export async function transcribePcm(pcm: Buffer, options: TranscribeOptions): Pr
   if (!output && candidate?.finishReason && ['SAFETY', 'RECITATION', 'PROHIBITED_CONTENT'].includes(candidate.finishReason)) {
     throw new Error(`Gemini 因為內容政策沒有輸出逐字稿（${candidate.finishReason}）。`);
   }
-  if (candidate?.finishReason === 'MAX_TOKENS') {
-    throw new Error('這段逐字稿超過 Gemini 的輸出上限，請把自動切段秒數調短。');
-  }
+  if (candidate?.finishReason === 'MAX_TOKENS') throw new MaxTokensError(cleanText(output));
   return cleanText(output);
 }
 
