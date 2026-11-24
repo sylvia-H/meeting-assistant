@@ -34,6 +34,9 @@ export interface Segment {
   billedSeconds: number | null;
   requestId: string | null;
   error: string | null;
+  /** 這一段的音量（診斷用）：整體 RMS 與講話時的 95 百分位 */
+  audioRms?: number;
+  audioPeak?: number;
 }
 
 export interface ReferenceFile {

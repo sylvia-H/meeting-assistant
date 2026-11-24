@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { Meeting, NoteKind, Segment, ServerMessage } from '../src/core/protocol.ts';
 import { settings } from './config.ts';
 import { transcribePcm, DailyQuotaError, geminiModelChain } from './gemini.ts';
-import { SILENCE_RMS, pcmRms } from './transcript-guard.ts';
+import { pcmLevels, silenceReason } from './transcript-guard.ts';
 import { emptySegment, meetingDir, newNote, saveMeeting, writeNotes, writeTranscript } from './store.ts';
 
 const BYTES_PER_SEC = 32000; // 16000 Hz × 16-bit × 1ch
@@ -465,16 +465,19 @@ export class LiveSession {
     // 麥克風沒收到聲音時 PCM 幾乎全是 0。Gemini 碰到靜音不會回空字串，而是自己編一份
     // 煞有其事的會議逐字稿（實測 11 秒數位靜音 → 「大家早安，我們現在開始今天的週會…」），
     // 所以先量音量，太安靜就跳過，寧可留白也不要假內容。
-    const rms = pcmRms(pcm);
-    if (rms < SILENCE_RMS) {
+    const levels = pcmLevels(pcm);
+    seg.audioRms = Number(levels.rms.toFixed(4));
+    seg.audioPeak = Number(levels.p95.toFixed(4));
+    const silent = silenceReason(levels);
+    if (silent) {
       seg.transcript = '';
       seg.durationSeconds = Math.round(pcm.length / BYTES_PER_SEC);
       seg.status = 'failed';
-      seg.error = `這段幾乎沒有聲音（音量 ${rms.toFixed(4)}），麥克風可能沒收到。已跳過轉錄，避免 Gemini 自己編一份假逐字稿。`;
+      seg.error = `這段${silent}（音量 ${levels.rms.toFixed(4)}、講話時峰值 ${levels.p95.toFixed(3)}），麥克風或分享的音訊可能沒收到。已跳過轉錄，避免 Gemini 自己編一份假逐字稿。`;
       seg.endedAt = seg.endedAt ?? new Date().toISOString();
       this.send({
         type: 'error',
-        message: `第 ${seg.index + 1} 段沒有收到聲音（音量 ${rms.toFixed(4)}）：確認麥克風有沒有選錯或靜音。`,
+        message: `第 ${seg.index + 1} 段${silent}（音量 ${levels.rms.toFixed(4)}）：確認麥克風有沒有選錯或靜音。`,
       });
       this.settle(seg);
       this.afterSegment(seg);

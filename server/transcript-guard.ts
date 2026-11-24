@@ -54,20 +54,68 @@ export function cutRunawayRepeat(text: string): RepeatCut {
 }
 
 /**
- * 靜音門檻：低於這個 RMS 就當作「麥克風沒收到聲音」。
- * 實測：Windows TTS 的正常說話 RMS ≈ 0.077，數位靜音是 0；一般會議室底噪約 0.001。
- * 取 0.002 只擋掉「幾乎全零」的音訊，不會誤殺小聲說話。
+ * 靜音／底噪判定。
+ *
+ * 實測：Gemini 碰到沒有說話的片段不會回空字串，而是自己編一份煞有其事的會議逐字稿
+ * （11 秒數位靜音 → 「大家早安，我們現在開始今天的週會…」）。所以送出去之前先看音量。
+ *
+ * 只看整體 RMS 不夠：風扇、冷氣、藍牙耳機的底噪也會有 0.005–0.02 的音量，
+ * 但它是「平的」；說話會有明顯起伏。所以同時看 10 百分位（停頓）與 95 百分位（講話）。
  */
-export const SILENCE_RMS = 0.002;
+export const SILENCE_PEAK = 0.01;
+/** p95 / p10 低於這個倍率，代表只有持續底噪、沒有說話的抑揚頓挫 */
+export const FLAT_RATIO = 1.8;
+const SAMPLE_RATE = 16000;
+const FRAME_MS = 100;
 
-/** 16-bit PCM 的 RMS（0–1）。用來判斷這一段到底有沒有收到聲音。 */
-export function pcmRms(pcm: Buffer): number {
+export interface PcmLevels {
+  /** 整段的 RMS */
+  rms: number;
+  /** 100 ms 音框能量的 10 百分位（大概是停頓時的音量） */
+  p10: number;
+  /** 95 百分位（大概是講話時的音量） */
+  p95: number;
+  frames: number;
+}
+
+function percentile(sorted: number[], q: number): number {
+  if (!sorted.length) return 0;
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.floor(q * (sorted.length - 1))));
+  return sorted[index] ?? 0;
+}
+
+export function pcmLevels(pcm: Buffer): PcmLevels {
   const samples = Math.floor(pcm.length / 2);
-  if (samples === 0) return 0;
-  let sum = 0;
-  for (let i = 0; i < samples; i += 1) {
-    const value = pcm.readInt16LE(i * 2) / 32768;
-    sum += value * value;
+  if (samples === 0) return { rms: 0, p10: 0, p95: 0, frames: 0 };
+
+  const frameSamples = (SAMPLE_RATE * FRAME_MS) / 1000;
+  const frames: number[] = [];
+  let total = 0;
+
+  for (let start = 0; start < samples; start += frameSamples) {
+    const end = Math.min(samples, start + frameSamples);
+    let sum = 0;
+    for (let i = start; i < end; i += 1) {
+      const value = pcm.readInt16LE(i * 2) / 32768;
+      sum += value * value;
+    }
+    const rms = Math.sqrt(sum / Math.max(1, end - start));
+    frames.push(rms);
+    total += sum;
   }
-  return Math.sqrt(sum / samples);
+
+  const sorted = [...frames].sort((a, b) => a - b);
+  return {
+    rms: Math.sqrt(total / samples),
+    p10: percentile(sorted, 0.1),
+    p95: percentile(sorted, 0.95),
+    frames: frames.length,
+  };
+}
+
+/** 這段音訊「有沒有在說話」；沒有的話回傳原因，讓錯誤訊息講得出來。 */
+export function silenceReason(levels: PcmLevels): string | null {
+  if (levels.p95 < SILENCE_PEAK) return '幾乎沒有聲音';
+  if (levels.p95 < levels.p10 * FLAT_RATIO) return '只有持續底噪、沒有說話的起伏';
+  return null;
 }

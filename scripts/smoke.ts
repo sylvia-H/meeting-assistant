@@ -208,9 +208,13 @@ class LiveClient {
   }
 
   async audio(frames: number): Promise<void> {
-    const frame = new Uint8Array(BYTES_PER_FRAME);
+    // 全 0 會被靜音判定擋掉（不送 Gemini），所以送「講話 0.3 秒、停 0.2 秒」的 220 Hz 正弦波，
+    // 有起伏才像人說話，也過得了「只有平平的底噪」那一關。
+    const speech = new Int16Array(BYTES_PER_FRAME / 2);
+    for (let i = 0; i < speech.length; i += 1) speech[i] = Math.round(Math.sin((2 * Math.PI * 220 * i) / 16000) * 0.3 * 32767);
+    const pause = new Int16Array(BYTES_PER_FRAME / 2).map((_, i) => (i % 2 ? 40 : -40));
     for (let i = 0; i < frames; i += 1) {
-      this.ws.send(frame);
+      this.ws.send(i % 5 < 3 ? speech : pause);
       if (i % 50 === 49) await sleep(5);
     }
   }
