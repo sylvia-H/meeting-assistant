@@ -37,6 +37,8 @@ export interface Segment {
   /** 這一段的音量（診斷用）：整體 RMS 與講話時的 95 百分位 */
   audioRms?: number;
   audioPeak?: number;
+  /** 使用者在錄音頁或之後手動改過這段逐字稿 */
+  edited?: boolean;
 }
 
 export interface ReferenceFile {
@@ -95,6 +97,7 @@ export type ClientMessage =
   | { type: 'note'; kind: NoteKind; text: string }
   | { type: 'section'; label: string }
   | { type: 'cut' }
+  | { type: 'edit'; index: number; transcript: string }
   | { type: 'end' };
 
 export type ServerMessage =

@@ -603,6 +603,49 @@ textarea {
   max-width: 42em;
 }
 
+/* 逐字稿可以直接改：平常看起來就是內文，滑過去或點進去才露出輸入框的樣子 */
+.seg-text {
+  display: block;
+  width: 100%;
+  max-width: 42em;
+  min-height: 1.75em;
+  margin: 0 0 4px;
+  padding: 4px 8px;
+  margin-left: -8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.75;
+  resize: none;
+  overflow: hidden;
+  field-sizing: content;
+}
+
+.seg-text:hover {
+  border-color: var(--border);
+}
+
+.seg-text:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.seg-text::placeholder {
+  color: var(--muted);
+}
+
+.seg-edited {
+  color: var(--accent);
+}
+
+.seg-save {
+  margin-left: auto;
+  color: var(--muted);
+}
+
 .recording::before {
   content: '';
   display: inline-block;

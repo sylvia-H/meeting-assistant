@@ -263,6 +263,33 @@ await until(
 );
 check(true, '切段後逐字稿出現在錄音頁');
 
+// 聽者可以直接在錄音頁校正逐字稿：改完要存回伺服器，而且之後的 state 更新不能把它洗掉
+const editable = await cdp.eval<boolean>(`!!document.querySelector('#segments textarea.seg-text')`);
+check(editable, '逐字稿是可以直接編輯的輸入框');
+await cdp.eval(`(() => {
+  const area = document.querySelector('#segments textarea.seg-text');
+  area.focus();
+  area.value = area.value + '（校正：報價改寄給 Amy）';
+  area.dispatchEvent(new Event('input', { bubbles: true }));
+  area.blur();
+})()`);
+await until(
+  async () => {
+    const saved = (await (await fetch(`${BASE}/api/meetings/${id}`)).json()) as {
+      meeting: { segments: { transcript: string; edited?: boolean }[] };
+    };
+    return saved.meeting.segments.some((s) => s.edited && s.transcript.includes('校正：報價改寄給 Amy'));
+  },
+  10000,
+  '校正的逐字稿存回伺服器',
+);
+check(true, '在錄音頁改的逐字稿存回 meeting.json（標記已校正）');
+await sleep(1500); // 讓幾個 state 訊息過去，確認畫面上的修改沒被洗掉
+const stillEdited = await cdp.eval<string>(
+  `document.querySelector('#segments textarea.seg-text')?.value ?? ''`,
+);
+check(stillEdited.includes('校正：報價改寄給 Amy'), '之後的畫面更新沒有把修改洗掉');
+
 const liveNotes = await cdp.eval<number>(`document.querySelectorAll('#notes .note').length`);
 check(liveNotes === 3, `錄音頁出現三則筆記（實際 ${liveNotes}）`);
 

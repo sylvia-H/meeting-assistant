@@ -121,6 +121,7 @@ export function renderLive(id: string): View {
     ws.addEventListener('open', () => {
       banner.hidden = true;
       setStatus('已連線');
+      flushDrafts();
     });
 
     ws.addEventListener('message', (event) => {
@@ -145,8 +146,8 @@ export function renderLive(id: string): View {
           document.title = `${msg.meeting.title} · 會議助手`;
           transcribeNote.textContent =
             msg.meeting.engine === 'gemini'
-              ? 'Gemini 會在「切段」時送出音訊轉成文字；打 # 環節名稱 或按「切段」就會產出這一段。'
-              : 'Typeless 只在「切段」時回傳文字；打 # 環節名稱 或按「切段」就會產出這一段。';
+              ? 'Gemini 會在「切段」時把音訊轉成文字；出來的文字可以直接點進去改錯字、補充。'
+              : 'Typeless 只在「切段」時回傳文字；出來的文字可以直接點進去改錯字、補充。';
           renderAll();
           applyState(msg.state);
           if (msg.meeting.status === 'paused' || msg.meeting.status === 'recording') {
@@ -161,8 +162,8 @@ export function renderLive(id: string): View {
           meeting = msg.meeting;
           transcribeNote.textContent =
             msg.meeting.engine === 'gemini'
-              ? 'Gemini 會在「切段」時送出音訊轉成文字；打 # 環節名稱 或按「切段」就會產出這一段。'
-              : 'Typeless 只在「切段」時回傳文字；打 # 環節名稱 或按「切段」就會產出這一段。';
+              ? 'Gemini 會在「切段」時把音訊轉成文字；出來的文字可以直接點進去改錯字、補充。'
+              : 'Typeless 只在「切段」時回傳文字；出來的文字可以直接點進去改錯字、補充。';
           renderAll();
           break;
         case 'segment': {
@@ -371,44 +372,162 @@ export function renderLive(id: string): View {
     renderNotes();
   }
 
-  function renderSegments(): void {
-    if (!meeting && !segments.length) return;
-    const visible = segments.slice().sort((a, b) => a.index - b.index);
-    if (!visible.length) {
-      segmentsHost.innerHTML = `<p class="muted">還沒開始。按右上角「開始錄音」，第一段會在切段後出現。</p>`;
+  // 逐字稿可以直接改：每段一個 article，用 index 當 key 增量更新。
+  // state 訊息每秒都會觸發重畫，整塊 innerHTML 重寫會把正在打字的游標與內容洗掉。
+  const segEls = new Map<number, { el: HTMLElement; sig: string }>();
+  /** 還沒存到伺服器的修改（打字中、或斷線時改的），重新連上後補送 */
+  const drafts = new Map<number, string>();
+  const saveTimers = new Map<number, number>();
+
+  function segSignature(seg: Segment): string {
+    return JSON.stringify([seg.status, seg.transcript, seg.label, seg.durationSeconds, seg.error, seg.startedAt, seg.edited]);
+  }
+
+  function isEditing(index: number): boolean {
+    const active = document.activeElement;
+    return (
+      drafts.has(index) ||
+      (active instanceof HTMLTextAreaElement && active.dataset.index === String(index))
+    );
+  }
+
+  function segHtml(seg: Segment): string {
+    const label = seg.label?.trim() || '未標記環節';
+    const duration = seg.durationSeconds ? ` · ${formatDuration(seg.durationSeconds)}` : '';
+    const editable = seg.status === 'done' || seg.status === 'failed';
+    const status =
+      seg.status === 'open'
+        ? `<p class="muted recording">收音中…（切段後才會出現逐字稿）</p>`
+        : seg.status === 'finalizing'
+          ? `<p class="muted">轉錄中…</p>`
+          : seg.status === 'failed'
+            ? `<p class="warn">這一段失敗：${escapeHtml(seg.error ?? '未知原因')}</p>`
+            : '';
+    const placeholder =
+      seg.status === 'failed' ? '轉錄失敗。記得這段在談什麼的話，可以直接打在這裡補上。' : '這段沒有文字，可以直接補上。';
+    // 用 innerHTML 放初始文字（不是設 .value）：textContent 才找得到逐字稿，e2e 靠它判斷
+    const body = editable
+      ? `<textarea class="seg-text" data-index="${seg.index}" rows="1" spellcheck="false" aria-label="第 ${seg.index + 1} 段逐字稿" placeholder="${placeholder}">${escapeHtml(seg.transcript)}</textarea>`
+      : '';
+    return `
+      <header>
+        <span class="seg-index">${String(seg.index + 1).padStart(2, '0')}</span>
+        <strong>${escapeHtml(label)}</strong>
+        <span class="muted small">${formatClock(seg.startedAt)}${duration}</span>
+        ${seg.edited ? `<span class="seg-edited small">已校正</span>` : ''}
+        <span class="seg-save small" aria-live="polite"></span>
+      </header>
+      ${status}${body}`;
+  }
+
+  function fitTextarea(area: HTMLTextAreaElement): void {
+    area.style.height = 'auto';
+    area.style.height = `${area.scrollHeight}px`;
+  }
+
+  function setSaveState(index: number, text: string): void {
+    const node = segEls.get(index)?.el.querySelector<HTMLElement>('.seg-save');
+    if (node) node.textContent = text;
+  }
+
+  function saveEdit(index: number): void {
+    window.clearTimeout(saveTimers.get(index));
+    saveTimers.delete(index);
+    const text = drafts.get(index);
+    if (text === undefined) return;
+    if (ws?.readyState !== WebSocket.OPEN) {
+      setSaveState(index, '未連線，重新連上後會自動存');
       return;
     }
-    const html = visible
-      .map((seg) => {
-        const hasText = seg.transcript.trim().length > 0;
-        if (!hasText && seg.status === 'done') return '';
-        const label = seg.label?.trim() || '未標記環節';
-        const duration = seg.durationSeconds ? ` · ${formatDuration(seg.durationSeconds)}` : '';
-        const body = hasText
-          ? `<p>${escapeHtml(seg.transcript).replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br />')}</p>`
-          : '';
-        const placeholder =
-          seg.status === 'open'
-            ? `<p class="muted recording">收音中…（切段後才會出現逐字稿）</p>`
-            : seg.status === 'finalizing'
-              ? `<p class="muted">轉錄中…</p>`
-              : seg.status === 'failed'
-                ? `<p class="warn">這一段失敗：${escapeHtml(seg.error ?? '未知原因')}</p>`
-                : '';
-        return `
-          <article class="seg">
-            <header>
-              <span class="seg-index">${String(seg.index + 1).padStart(2, '0')}</span>
-              <strong>${escapeHtml(label)}</strong>
-              <span class="muted small">${formatClock(seg.startedAt)}${duration}</span>
-            </header>
-            ${placeholder}${body}
-          </article>`;
-      })
-      .join('');
-    segmentsHost.innerHTML = html || `<p class="muted">錄音中，等第一個切段。</p>`;
+    ws.send(JSON.stringify({ type: 'edit', index, transcript: text } satisfies ClientMessage));
+    drafts.delete(index);
+    setSaveState(index, '已儲存');
+  }
 
-    if (isNearBottom(segmentsHost)) segmentsHost.scrollTop = segmentsHost.scrollHeight;
+  function flushDrafts(): void {
+    for (const index of [...drafts.keys()]) saveEdit(index);
+  }
+
+  segmentsHost.addEventListener('input', (event) => {
+    const area = event.target;
+    if (!(area instanceof HTMLTextAreaElement) || !area.dataset.index) return;
+    const index = Number(area.dataset.index);
+    drafts.set(index, area.value);
+    fitTextarea(area);
+    setSaveState(index, '編輯中…');
+    window.clearTimeout(saveTimers.get(index));
+    saveTimers.set(index, window.setTimeout(() => saveEdit(index), 800));
+  });
+
+  segmentsHost.addEventListener('focusout', (event) => {
+    const area = event.target;
+    if (!(area instanceof HTMLTextAreaElement) || !area.dataset.index) return;
+    saveEdit(Number(area.dataset.index));
+    // 編輯期間伺服器送來的更新先擱著，離開輸入框再補畫
+    queueMicrotask(renderSegments);
+  });
+
+  function renderSegments(): void {
+    if (!meeting && !segments.length) return;
+    const visible = segments
+      .slice()
+      .sort((a, b) => a.index - b.index)
+      .filter((seg) => seg.transcript.trim().length > 0 || seg.status !== 'done' || isEditing(seg.index));
+    if (!visible.length) {
+      segEls.clear();
+      segmentsHost.innerHTML = segments.length
+        ? `<p class="muted">錄音中，等第一個切段。</p>`
+        : `<p class="muted">還沒開始。按右上角「開始錄音」，第一段會在切段後出現。</p>`;
+      return;
+    }
+
+    const stick = isNearBottom(segmentsHost);
+    const keep = new Set(visible.map((seg) => seg.index));
+    for (const [index, entry] of segEls) {
+      if (!keep.has(index)) {
+        entry.el.remove();
+        segEls.delete(index);
+      }
+    }
+    // 拿掉「還沒開始」之類的提示文字
+    for (const child of [...segmentsHost.children]) {
+      if (!(child as HTMLElement).dataset.segIndex) child.remove();
+    }
+
+    let added = false;
+    let prev: Element | null = null;
+    for (const seg of visible) {
+      const sig = segSignature(seg);
+      let entry = segEls.get(seg.index);
+      if (!entry) {
+        const article = document.createElement('article');
+        article.className = 'seg';
+        article.dataset.segIndex = String(seg.index);
+        article.innerHTML = segHtml(seg);
+        entry = { el: article, sig };
+        segEls.set(seg.index, entry);
+        added = true;
+      } else if (entry.sig !== sig && !isEditing(seg.index)) {
+        entry.el.innerHTML = segHtml(seg);
+        entry.sig = sig;
+      }
+      // 只在位置不對時才搬動節點，搬動會讓正在編輯的輸入框失焦
+      const expected: Element | null = prev ? prev.nextElementSibling : segmentsHost.firstElementChild;
+      if (expected !== entry.el) {
+        if (prev) prev.after(entry.el);
+        else segmentsHost.prepend(entry.el);
+      }
+      prev = entry.el;
+    }
+
+    for (const area of segmentsHost.querySelectorAll<HTMLTextAreaElement>('textarea.seg-text')) {
+      if (area.style.height === '' || area.dataset.fitted !== String(area.value.length)) {
+        fitTextarea(area);
+        area.dataset.fitted = String(area.value.length);
+      }
+    }
+
+    if (added && stick) segmentsHost.scrollTop = segmentsHost.scrollHeight;
   }
 
   function renderNotes(): void {
@@ -508,6 +627,7 @@ export function renderLive(id: string): View {
     btnEnd.disabled = true;
     btnEnd.textContent = '收尾中…';
     teardownMic();
+    flushDrafts(); // 還在改的逐字稿先送出，再收尾
     send({ type: 'end' });
     void watchEnded();
   }
@@ -569,6 +689,7 @@ export function renderLive(id: string): View {
       destroyed = true;
       document.removeEventListener('keydown', onGlobalKey);
       teardownMic();
+      flushDrafts();
       ws?.close();
     },
   };

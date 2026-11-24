@@ -399,7 +399,7 @@ async function openLive(id: string, ws: import('ws').WebSocket): Promise<void> {
       session.write(buf);
       return;
     }
-    let msg: { type?: string; kind?: string; text?: string; label?: string };
+    let msg: { type?: string; kind?: string; text?: string; label?: string; index?: unknown; transcript?: unknown };
     try {
       msg = JSON.parse(raw.toString());
     } catch {
@@ -425,6 +425,11 @@ async function openLive(id: string, ws: import('ws').WebSocket): Promise<void> {
             break;
           case 'cut':
             await session.cut();
+            break;
+          case 'edit':
+            if (typeof msg.index === 'number' && typeof msg.transcript === 'string') {
+              session.editTranscript(msg.index, msg.transcript);
+            }
             break;
           case 'end':
             await session.end();
