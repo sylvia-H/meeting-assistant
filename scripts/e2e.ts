@@ -293,6 +293,54 @@ check(stillEdited.includes('校正：報價改寄給 Amy'), '之後的畫面更�
 const liveNotes = await cdp.eval<number>(`document.querySelectorAll('#notes .note').length`);
 check(liveNotes === 3, `錄音頁出現三則筆記（實際 ${liveNotes}）`);
 
+// 貼上截圖：模擬 Ctrl+V 一張 2400×1200 的 PNG，要縮到長邊 1568、附在輸入框旁，送出後變成筆記
+await cdp.eval(`(async () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 2400;
+  canvas.height = 1200;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#2b6';
+  g.fillRect(0, 0, 2400, 1200);
+  g.fillStyle = '#000';
+  g.font = '96px sans-serif';
+  g.fillText('Q3 營收 1,234 萬', 120, 300);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  const data = new DataTransfer();
+  data.items.add(new File([blob], 'screenshot.png', { type: 'image/png' }));
+  const input = document.querySelector('#note-input');
+  input.focus();
+  input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+})()`);
+await until(
+  async () => cdp.eval<boolean>(`!!document.querySelector('#attach:not([hidden]):not(.loading) img')`),
+  10000,
+  '截圖預覽出現',
+);
+check(true, '貼上截圖後輸入框旁出現預覽');
+await typeNote('> 這張是 Q3 營收表');
+await until(
+  async () => cdp.eval<boolean>(`(() => {
+    const img = document.querySelector('#notes .note-shot img');
+    return !!img && img.complete && img.naturalWidth > 0;
+  })()`),
+  10000,
+  '截圖筆記出現',
+);
+const shotSize = await cdp.eval<string>(`(() => {
+  const img = document.querySelector('#notes .note-shot img');
+  return img.naturalWidth + 'x' + img.naturalHeight;
+})()`);
+check(shotSize === '1568x784', `截圖縮到長邊 1568（實際 ${shotSize}）`);
+const attachHidden = await cdp.eval<boolean>(`document.querySelector('#attach').hidden`);
+check(attachHidden, '送出後預覽收起來');
+const shotNote = (await (await fetch(`${BASE}/api/meetings/${id}`)).json()) as {
+  meeting: { notes: { kind: string; text: string; image?: string }[] };
+};
+check(
+  shotNote.meeting.notes.some((n) => n.image && n.kind === 'decision' && n.text === '這張是 Q3 營收表'),
+  '截圖筆記存進 meeting.json（前綴 > 分類成決議、說明文字一起存）',
+);
+
 const timerText = await cdp.eval<string>(`document.querySelector('#timer')?.textContent ?? ''`);
 check(/^\d+:\d{2}$/.test(timerText), `計時器有在跑（${timerText}）`);
 
@@ -354,6 +402,9 @@ const minutes = await cdp.eval<string>(`document.querySelector('#minutes')?.text
 check(minutes.includes('TL;DR'), '摘要頁渲染出 TL;DR');
 check(minutes.includes('決議'), '摘要頁有決議段落');
 check(!minutes.includes('title:'), '紀錄頁不顯示 YAML frontmatter');
+check(minutes.includes('收到 1 張截圖'), '產生紀錄時截圖有送到 LLM');
+const resultShots = await cdp.eval<number>(`document.querySelectorAll('#notes .note-shot img').length`);
+check(resultShots === 1, `紀錄頁的筆記也看得到截圖（${resultShots} 張）`);
 
 await shot('result');
 
@@ -366,7 +417,7 @@ const meetingJson = JSON.parse(readFileSync(path.join(meetingsDir, id, 'meeting.
   segments: { transcript: string }[];
   notes: unknown[];
 };
-check(meetingJson.notes.length === 3, 'meeting.json 有三則筆記');
+check(meetingJson.notes.length === 4, `meeting.json 有三則筆記＋一則截圖（實際 ${meetingJson.notes.length}）`);
 
 await sleep(300);
 if (cdp.consoleErrors.length) {

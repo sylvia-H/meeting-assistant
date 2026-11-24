@@ -1,9 +1,10 @@
 import type { ClientMessage, LiveState, Meeting, MeetingNote, Segment } from '../core/protocol.ts';
-import { TYPELESS_PRICE_PER_HOUR } from '../core/protocol.ts';
+import { MAX_NOTE_IMAGES, TYPELESS_PRICE_PER_HOUR } from '../core/protocol.ts';
 import { estimateCost, formatClock, formatDuration } from '../core/format.ts';
 import { NOTE_KINDS, kindMeta, parseInput } from '../core/notes.ts';
 import { startCapture, type MicHandle } from './audio.ts';
-import { getMeeting } from './api.ts';
+import { deleteNoteImage, getMeeting, imageUrl, uploadNoteImage } from './api.ts';
+import { shrinkImage } from './image.ts';
 import { el, escapeHtml, q, toast } from './dom.ts';
 import { errorText, type View } from './home.ts';
 
@@ -66,7 +67,10 @@ export function renderLive(id: string): View {
 
     <form id="composer" class="composer">
       <span class="kind-chip" id="kind-chip">筆記</span>
-      <input id="note-input" type="text" autocomplete="off" placeholder="直接打，或先用前綴：# 環節　! 待辦　? 待確認　> 決議　* 想法" />
+      <span class="attach" id="attach" hidden>
+        <button type="button" class="attach-remove" id="attach-remove" title="不附這張" aria-label="不附這張截圖">×</button>
+      </span>
+      <input id="note-input" type="text" autocomplete="off" placeholder="直接打，或先用前綴：# 環節　! 待辦　? 待確認　> 決議　* 想法；截圖可以直接 Ctrl+V 貼上" />
       <button type="submit">送出</button>
     </form>
     <div class="legend">
@@ -131,6 +135,7 @@ export function renderLive(id: string): View {
         | { type: 'meeting'; meeting: Meeting }
         | { type: 'segment'; segment: Segment }
         | { type: 'note'; note: MeetingNote }
+        | { type: 'note-removed'; id: string }
         | { type: 'ended'; meeting: Meeting }
         | { type: 'error'; message: string }
         | { type: 'notice'; message: string };
@@ -177,6 +182,12 @@ export function renderLive(id: string): View {
           notes.push(msg.note);
           renderNotes();
           break;
+        case 'note-removed': {
+          const at = notes.findIndex((n) => n.id === msg.id);
+          if (at >= 0) notes.splice(at, 1);
+          renderNotes();
+          break;
+        }
         case 'ended':
           meeting = msg.meeting;
           ending = true;
@@ -538,11 +549,16 @@ export function renderLive(id: string): View {
     notesHost.innerHTML = notes
       .map((note) => {
         const meta = kindMeta(note.kind);
+        // 一行寫完：.note-text 是 pre-wrap，模板裡的換行會變成空白行
+        const shot = note.image
+          ? `<a class="note-shot" href="${imageUrl(id, note.image)}" target="_blank" rel="noopener" title="開新分頁看大圖"><img src="${imageUrl(id, note.image)}" alt="截圖${note.text ? `：${escapeHtml(note.text)}` : ''}" loading="lazy" /></a>` +
+            `<button type="button" class="note-del" data-note-id="${escapeHtml(note.id)}" title="刪掉這則截圖筆記">刪除截圖</button>`
+          : '';
         return `
-          <div class="note" style="--kind:${meta.color}">
+          <div class="note${note.image ? ' has-shot' : ''}" style="--kind:${meta.color}">
             <span class="note-time">${formatDuration(note.elapsedSec)}</span>
             <span class="note-kind">${meta.label}</span>
-            <span class="note-text">${escapeHtml(note.text)}</span>
+            <span class="note-text">${escapeHtml(note.text)}${shot}</span>
           </div>`;
       })
       .join('');
@@ -566,10 +582,92 @@ export function renderLive(id: string): View {
     chip.style.color = meta.color;
   }
 
+  // ── 截圖 ────────────────────────────────────────────────
+  // 貼上 → 瀏覽器縮圖 → 上傳存檔 → 輸入框旁顯示預覽；按送出時跟文字一起變成一則筆記。
+  const attach = q<HTMLElement>(root, '#attach');
+  let pendingImage: string | null = null;
+  let uploading = false;
+
+  function setPending(name: string | null): void {
+    pendingImage = name;
+    attach.hidden = !name;
+    // 沒有圖時不留空的 <img>（會顯示成破圖框）
+    attach.querySelector('img')?.remove();
+    if (name) {
+      const img = document.createElement('img');
+      img.alt = '準備附上的截圖';
+      img.src = imageUrl(id, name);
+      attach.prepend(img);
+    }
+    input.placeholder = name
+      ? '幫這張截圖寫一句說明（可留白），按 Enter 送出'
+      : '直接打，或先用前綴：# 環節　! 待辦　? 待確認　> 決議　* 想法；截圖可以直接 Ctrl+V 貼上';
+  }
+
+  function discardPending(): void {
+    const name = pendingImage;
+    setPending(null);
+    if (name) void deleteNoteImage(id, name).catch(() => undefined);
+  }
+
+  async function attachImage(file: File): Promise<void> {
+    if (uploading) {
+      toast('上一張還在上傳，稍等一下', 'info');
+      return;
+    }
+    if (notes.filter((n) => n.image).length >= MAX_NOTE_IMAGES) {
+      toast(`這場會議已經有 ${MAX_NOTE_IMAGES} 張截圖（上限）。刪掉用不到的再貼。`, 'error', 8000);
+      return;
+    }
+    uploading = true;
+    attach.hidden = false;
+    attach.classList.add('loading');
+    try {
+      const shrunk = await shrinkImage(file);
+      const name = await uploadNoteImage(id, shrunk);
+      if (pendingImage) discardPending(); // 再貼一張就換掉前一張
+      setPending(name);
+      input.focus();
+    } catch (err) {
+      if (!pendingImage) attach.hidden = true;
+      toast(`截圖沒有附上：${errorText(err)}`, 'error', 8000);
+    } finally {
+      uploading = false;
+      attach.classList.remove('loading');
+    }
+  }
+
+  function onPaste(event: ClipboardEvent): void {
+    const target = event.target as HTMLElement | null;
+    // 在逐字稿輸入框裡貼東西是在改逐字稿，不攔
+    if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) return;
+    const file = [...(event.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'));
+    if (!file) return;
+    event.preventDefault();
+    void attachImage(file);
+  }
+  document.addEventListener('paste', onPaste);
+
+  q<HTMLButtonElement>(root, '#attach-remove').addEventListener('click', () => {
+    discardPending();
+    input.focus();
+  });
+
+  notesHost.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.note-del');
+    if (!button?.dataset.noteId) return;
+    if (!confirm('刪掉這則截圖筆記？圖片也會一併刪除，不會送進會議紀錄。')) return;
+    send({ type: 'delete-note', id: button.dataset.noteId });
+  });
+
   composer.addEventListener('submit', (event) => {
     event.preventDefault();
     const raw = input.value;
-    if (!raw.trim()) return;
+    if (uploading) {
+      toast('截圖還在上傳，稍等一下再送', 'info');
+      return;
+    }
+    if (!raw.trim() && !pendingImage) return;
     const parsed = parseInput(raw);
 
     if (parsed.type === 'command') {
@@ -593,6 +691,13 @@ export function renderLive(id: string): View {
         return;
       }
       send({ type: 'section', label: parsed.text });
+    } else if (pendingImage) {
+      if (ws?.readyState !== WebSocket.OPEN) {
+        toast('還沒連上伺服器，截圖先留著，連上後再送', 'error');
+        return;
+      }
+      send({ type: 'note', kind: parsed.kind, text: parsed.text, image: pendingImage });
+      setPending(null);
     } else {
       if (!parsed.text) return;
       send({ type: 'note', kind: parsed.kind, text: parsed.text });
@@ -688,6 +793,7 @@ export function renderLive(id: string): View {
     destroy() {
       destroyed = true;
       document.removeEventListener('keydown', onGlobalKey);
+      document.removeEventListener('paste', onPaste);
       teardownMic();
       flushDrafts();
       ws?.close();

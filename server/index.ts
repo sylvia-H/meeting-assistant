@@ -5,27 +5,32 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
-import type { Meeting, ServerMessage } from '../src/core/protocol.ts';
+import { MAX_NOTE_IMAGES, type Meeting, type ServerMessage } from '../src/core/protocol.ts';
 import { formatClock, formatDate, formatDurationZh } from '../src/core/format.ts';
 import { invalidateSettings, projectRoot, settings, settingsView, writeSettings } from './config.ts';
 import {
   addReferences,
+  countImages,
   createMeeting,
   deleteMeeting,
+  imageMime,
   listMeetings,
   meetingDir,
   meetingExists,
+  readImage,
   readMeeting,
   readMinutes,
   readReferenceContext,
+  removeImage,
   removeReference,
+  saveImage,
   saveMeeting,
   writeMinutes,
   writeNotes,
   writeTranscript,
 } from './store.ts';
-import { buildMinutesPrompt } from './prompt.ts';
-import { generateMinutes, pingLlm } from './llm.ts';
+import { buildMinutesPrompt, imageCaption, noteImages } from './prompt.ts';
+import { generateMinutes, pingLlm, type PromptImage } from './llm.ts';
 import { pingGemini } from './gemini.ts';
 import { LiveSession } from './relay.ts';
 
@@ -222,6 +227,41 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       sendJson(res, 200, { meeting: await readMeeting(id) });
       return;
     }
+    // 筆記截圖：上傳只存檔、回傳檔名；筆記本身走 WebSocket 加進錄音中的 session，
+    // 不然 session 下次存檔會把直接寫進 meeting.json 的筆記蓋掉
+    if (parts[3] === 'images') {
+      const name = parts[4] ? decodeURIComponent(parts[4]) : '';
+      if (method === 'POST' && parts.length === 4) {
+        const body = await readJson(req, 12 * 1024 * 1024);
+        const mime = typeof body.mime === 'string' ? body.mime : '';
+        const base64 = typeof body.base64 === 'string' ? body.base64 : '';
+        if ((await countImages(id)) >= MAX_NOTE_IMAGES) {
+          throw new HttpError(409, `這場會議已經有 ${MAX_NOTE_IMAGES} 張截圖（上限）。刪掉用不到的再貼。`);
+        }
+        try {
+          const saved = await saveImage(id, mime, Buffer.from(base64, 'base64'));
+          sendJson(res, 201, { name: saved });
+        } catch (err) {
+          throw new HttpError(400, err instanceof Error ? err.message : '圖片存檔失敗');
+        }
+        return;
+      }
+      if (method === 'GET' && parts.length === 5) {
+        const data = await readImage(id, name);
+        if (!data) throw new HttpError(404, '找不到這張截圖');
+        res.writeHead(200, { 'content-type': imageMime(name), 'cache-control': 'private, max-age=86400' });
+        res.end(data);
+        return;
+      }
+      if (method === 'DELETE' && parts.length === 5) {
+        // 只刪「還沒掛到任何筆記」的圖（貼了又取消）；掛上去的要刪筆記
+        const live = sessions.get(id)?.meeting ?? (await readMeeting(id));
+        if (live.notes.some((n) => n.image === name)) throw new HttpError(409, '這張截圖已經在筆記裡，請刪筆記');
+        await removeImage(id, name);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+    }
     if (method === 'GET' && parts[3] === 'transcript') {
       const meeting = await readMeeting(id);
       sendJson(res, 200, { meeting });
@@ -282,7 +322,13 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         referenceContext,
         provider: settings().llmProvider,
       });
-      const result = await generateMinutes(system, user);
+      // 截圖依提示詞裡的編號附上；檔案不見（被手動刪掉）就跳過那張，不讓整份紀錄失敗
+      const images: PromptImage[] = [];
+      for (const { n, note } of noteImages(meeting)) {
+        const data = await readImage(id, note.image);
+        if (data) images.push({ caption: imageCaption(n, note), mime: imageMime(note.image), data });
+      }
+      const result = await generateMinutes(system, user, images);
 
       meeting = await readMeeting(id);
       meeting.minutes = { generatedAt: new Date().toISOString(), provider: result.provider, model: result.model };
@@ -399,7 +445,16 @@ async function openLive(id: string, ws: import('ws').WebSocket): Promise<void> {
       session.write(buf);
       return;
     }
-    let msg: { type?: string; kind?: string; text?: string; label?: string; index?: unknown; transcript?: unknown };
+    let msg: {
+      type?: string;
+      kind?: string;
+      text?: string;
+      label?: string;
+      index?: unknown;
+      transcript?: unknown;
+      image?: unknown;
+      id?: unknown;
+    };
     try {
       msg = JSON.parse(raw.toString());
     } catch {
@@ -418,7 +473,14 @@ async function openLive(id: string, ws: import('ws').WebSocket): Promise<void> {
             await session.resume();
             break;
           case 'note':
-            await session.addNote((msg.kind ?? 'note') as never, msg.text ?? '');
+            await session.addNote(
+              (msg.kind ?? 'note') as never,
+              msg.text ?? '',
+              typeof msg.image === 'string' ? msg.image : undefined,
+            );
+            break;
+          case 'delete-note':
+            if (typeof msg.id === 'string') await session.deleteNote(msg.id);
             break;
           case 'section':
             await session.addSection(msg.label ?? '');

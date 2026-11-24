@@ -9,6 +9,7 @@ import {
   finishMeeting,
   getMeeting,
   getMinutes,
+  imageUrl,
   revealMeeting,
   summarizeMeeting,
 } from './api.ts';
@@ -107,7 +108,10 @@ export function renderMeeting(id: string): View {
       ? meeting.notes
           .map((note) => {
             const meta = NOTE_KINDS[note.kind];
-            return `<div class="note" style="--kind:${meta.color}"><span class="note-time">${formatDuration(note.elapsedSec)}</span><span class="note-kind">${meta.label}</span><span class="note-text">${escapeHtml(note.text)}</span></div>`;
+            const shot = note.image
+              ? `<a class="note-shot" href="${imageUrl(id, note.image)}" target="_blank" rel="noopener" title="開新分頁看大圖"><img src="${imageUrl(id, note.image)}" alt="截圖" loading="lazy" /></a>`
+              : '';
+            return `<div class="note${note.image ? ' has-shot' : ''}" style="--kind:${meta.color}"><span class="note-time">${formatDuration(note.elapsedSec)}</span><span class="note-kind">${meta.label}</span><span class="note-text">${escapeHtml(note.text)}${shot}</span></div>`;
           })
           .join('')
       : '<p class="muted">沒有筆記。</p>';

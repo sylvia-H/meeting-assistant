@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Meeting } from '../src/core/protocol.ts';
-import { buildMinutesPrompt, notesForPrompt, transcriptForPrompt } from './prompt.ts';
+import { buildMinutesPrompt, imageCaption, noteImages, notesForPrompt, transcriptForPrompt } from './prompt.ts';
 
 function makeMeeting(overrides: Partial<Meeting> = {}): Meeting {
   return {
@@ -52,6 +52,30 @@ function makeMeeting(overrides: Partial<Meeting> = {}): Meeting {
     ...overrides,
   };
 }
+
+test('截圖依時間編號，筆記與圖片說明用同一個編號', () => {
+  const meeting = makeMeeting({
+    notes: [
+      { id: 'b', kind: 'note', text: '', at: '', elapsedSec: 900, segmentIndex: 1, image: 'img-b-0000.jpg' },
+      { id: 'a', kind: 'decision', text: 'Q3 營收表', at: '', elapsedSec: 300, segmentIndex: 0, image: 'img-a-0000.jpg' },
+      { id: 'c', kind: 'todo', text: '寄報價', at: '', elapsedSec: 600, segmentIndex: 0 },
+    ],
+  });
+  const shots = noteImages(meeting);
+  assert.deepEqual(
+    shots.map(({ n, note }) => [n, note.id]),
+    [
+      [1, 'a'],
+      [2, 'b'],
+    ],
+  );
+  const notes = notesForPrompt(meeting);
+  assert.ok(notes.includes('Q3 營收表（附截圖 1）'));
+  assert.ok(notes.includes('（只有截圖，沒有文字）（附截圖 2）'));
+  assert.ok(!notes.includes('寄報價（附截圖'));
+  assert.equal(imageCaption(1, shots[0]!.note), '截圖 1（5 分鐘貼上，筆記：Q3 營收表）');
+  assert.ok(buildMinutesPrompt({ meeting, referenceContext: '' }).user.includes('截圖：2 張'));
+});
 
 test('逐字稿會被標上段號與環節', () => {
   const text = transcriptForPrompt(makeMeeting());

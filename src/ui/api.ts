@@ -23,6 +23,21 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const getSettings = (): Promise<SettingsView> => api<SettingsView>('/api/settings');
 
+export const imageUrl = (meetingId: string, name: string): string =>
+  `/api/meetings/${encodeURIComponent(meetingId)}/images/${encodeURIComponent(name)}`;
+
+/** 上傳一張已縮好的截圖，回傳伺服器上的檔名 */
+export async function uploadNoteImage(meetingId: string, image: { mime: string; base64: string }): Promise<string> {
+  const res = await api<{ name: string }>(`/api/meetings/${encodeURIComponent(meetingId)}/images`, {
+    method: 'POST',
+    body: JSON.stringify(image),
+  });
+  return res.name;
+}
+
+export const deleteNoteImage = (meetingId: string, name: string): Promise<unknown> =>
+  api(imageUrl(meetingId, name), { method: 'DELETE' });
+
 export const saveSettings = (patch: Record<string, unknown>): Promise<SettingsView> =>
   api<SettingsView>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) });
 

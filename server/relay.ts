@@ -1,12 +1,22 @@
 import WebSocket from 'ws';
-import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import type { Meeting, NoteKind, Segment, ServerMessage } from '../src/core/protocol.ts';
 import { settings } from './config.ts';
 import { transcribePcm, geminiModelChain } from './gemini.ts';
 import { transcribeLiveSegment } from './live-transcribe.ts';
 import { pcmLevels, silenceReason } from './transcript-guard.ts';
-import { emptySegment, meetingDir, newNote, saveMeeting, writeNotes, writeTranscript } from './store.ts';
+import {
+  emptySegment,
+  imagesDir,
+  isImageName,
+  meetingDir,
+  newNote,
+  removeImage,
+  saveMeeting,
+  writeNotes,
+  writeTranscript,
+} from './store.ts';
 
 const BYTES_PER_SEC = 32000; // 16000 Hz × 16-bit × 1ch
 const MIN_SECTION_SECONDS = 20; // 太短的環節不切段，標籤併進當前段
@@ -163,12 +173,32 @@ export class LiveSession {
     this.emitThrottled();
   }
 
-  async addNote(kind: NoteKind, text: string): Promise<void> {
+  async addNote(kind: NoteKind, text: string, image?: string): Promise<void> {
     const cleaned = text.trim();
-    if (!cleaned) return;
-    const note = newNote(kind, cleaned, this.elapsedSec(), this.channel?.seg.index ?? -1);
+    let attached: string | undefined;
+    if (image) {
+      // 圖片要先經 POST /images 上傳；這裡只認我們產生的檔名、而且檔案真的在
+      if (!isImageName(image) || !existsSync(path.join(imagesDir(this.meeting.id), image))) {
+        throw new Error('找不到這張截圖，請重新貼一次');
+      }
+      if (this.meeting.notes.some((n) => n.image === image)) return; // 重送的同一則
+      attached = image;
+    }
+    if (!cleaned && !attached) return;
+    const note = newNote(kind, cleaned, this.elapsedSec(), this.channel?.seg.index ?? -1, attached);
     this.meeting.notes.push(note);
     this.send({ type: 'note', note });
+    this.queuePersist();
+    this.emit();
+  }
+
+  /** 刪一則筆記；有截圖就連檔案一起刪，才不會偷偷被送進摘要 */
+  async deleteNote(id: string): Promise<void> {
+    const note = this.meeting.notes.find((n) => n.id === id);
+    if (!note) return;
+    this.meeting.notes = this.meeting.notes.filter((n) => n.id !== id);
+    if (note.image) await removeImage(this.meeting.id, note.image);
+    this.send({ type: 'note-removed', id });
     this.queuePersist();
     this.emit();
   }

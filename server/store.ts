@@ -237,7 +237,10 @@ export async function writeNotes(meeting: Meeting): Promise<void> {
     if (!group.length) continue;
     lines.push(`## ${NOTE_KINDS[kind].label}`, '');
     for (const note of group) {
-      lines.push(`- \`${formatDurationZh(note.elapsedSec)}\` ${note.text.replace(/\n/g, ' ')}`);
+      const text = note.text.replace(/\n/g, ' ') || (note.image ? '（截圖）' : '');
+      lines.push(`- \`${formatDurationZh(note.elapsedSec)}\` ${text}`);
+      // 用相對路徑嵌入，在 Obsidian／VS Code 打開會議資料夾就看得到圖
+      if (note.image) lines.push(`  ![](images/${note.image})`);
     }
     lines.push('');
   }
@@ -259,7 +262,13 @@ export async function readMinutes(id: string): Promise<string> {
   }
 }
 
-export function newNote(kind: MeetingNote['kind'], text: string, elapsedSec: number, segmentIndex: number): MeetingNote {
+export function newNote(
+  kind: MeetingNote['kind'],
+  text: string,
+  elapsedSec: number,
+  segmentIndex: number,
+  image?: string,
+): MeetingNote {
   return {
     id: `n_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     kind,
@@ -267,7 +276,67 @@ export function newNote(kind: MeetingNote['kind'], text: string, elapsedSec: num
     at: new Date().toISOString(),
     elapsedSec,
     segmentIndex,
+    ...(image ? { image } : {}),
   };
+}
+
+// ── 筆記截圖 ──────────────────────────────────────────────
+const IMAGE_EXT: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+};
+const IMAGE_MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
+/** 瀏覽器已經縮過圖；這是防呆上限，不是正常大小（正常一張 200–400 KB） */
+export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const IMAGE_NAME = /^img-[0-9a-z]+-[0-9a-z]{4}\.(jpg|png|webp)$/;
+
+export function imagesDir(id: string): string {
+  return path.join(meetingDir(id), 'images');
+}
+
+/** 只接受我們自己產生的檔名，擋掉 ../ 之類的路徑穿越 */
+export function isImageName(name: string): boolean {
+  return IMAGE_NAME.test(name);
+}
+
+export function imageMime(name: string): string {
+  return IMAGE_MIME[path.extname(name).toLowerCase()] ?? 'application/octet-stream';
+}
+
+export async function countImages(id: string): Promise<number> {
+  const dir = imagesDir(id);
+  if (!existsSync(dir)) return 0;
+  return (await readdir(dir)).filter(isImageName).length;
+}
+
+/** 存一張截圖，回傳檔名。數量上限由呼叫端檢查。 */
+export async function saveImage(id: string, mime: string, data: Buffer): Promise<string> {
+  const ext = IMAGE_EXT[mime];
+  if (!ext) throw new Error(`不支援的圖片格式：${mime}（只收 JPEG／PNG／WebP）`);
+  if (!data.length) throw new Error('圖片是空的');
+  if (data.length > MAX_IMAGE_BYTES) {
+    throw new Error(`圖片太大（${(data.length / 1024 / 1024).toFixed(1)} MB），上限 8 MB`);
+  }
+  const rand = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+  const name = `img-${Date.now().toString(36)}-${rand}${ext}`;
+  await mkdir(imagesDir(id), { recursive: true });
+  await writeFile(path.join(imagesDir(id), name), data);
+  return name;
+}
+
+export async function removeImage(id: string, name: string): Promise<void> {
+  if (!isImageName(name)) return;
+  await rm(path.join(imagesDir(id), name), { force: true });
+}
+
+export async function readImage(id: string, name: string): Promise<Buffer | null> {
+  if (!isImageName(name)) return null;
+  try {
+    return await readFile(path.join(imagesDir(id), name));
+  } catch {
+    return null;
+  }
 }
 
 export function emptySegment(index: number, label: string | null, offsetSec: number): Segment {

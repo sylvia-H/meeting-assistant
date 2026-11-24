@@ -19,7 +19,14 @@ export interface MeetingNote {
   elapsedSec: number;
   /** -1 表示當時還沒有任何錄音段 */
   segmentIndex: number;
+  /** 貼上的截圖：會議資料夾 images/ 底下的檔名 */
+  image?: string;
 }
+
+/** 一場會議最多貼幾張截圖：每張都會送進摘要的 LLM，太多會拖慢、變貴 */
+export const MAX_NOTE_IMAGES = 30;
+/** 瀏覽器縮圖後的長邊上限（Claude 建議 ≤ 1568px，再大也只會被它縮小） */
+export const NOTE_IMAGE_MAX_EDGE = 1568;
 
 export interface Segment {
   index: number;
@@ -94,7 +101,8 @@ export type ClientMessage =
   | { type: 'start' }
   | { type: 'pause' }
   | { type: 'resume' }
-  | { type: 'note'; kind: NoteKind; text: string }
+  | { type: 'note'; kind: NoteKind; text: string; image?: string }
+  | { type: 'delete-note'; id: string }
   | { type: 'section'; label: string }
   | { type: 'cut' }
   | { type: 'edit'; index: number; transcript: string }
@@ -106,6 +114,7 @@ export type ServerMessage =
   | { type: 'meeting'; meeting: Meeting }
   | { type: 'segment'; segment: Segment }
   | { type: 'note'; note: MeetingNote }
+  | { type: 'note-removed'; id: string }
   | { type: 'ended'; meeting: Meeting }
   | { type: 'error'; message: string }
   /** 不算錯誤的提醒（例如額度用完自動換模型），前端用一般提示顯示 */

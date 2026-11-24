@@ -255,6 +255,37 @@ live.send({ type: 'note', kind: 'todo', text: '寄報價給 Amy' });
 live.send({ type: 'note', kind: 'idea', text: '下次可以試著先寄 draft' });
 log('送出環節標記與兩則筆記');
 
+// 筆記截圖：HTTP 上傳只存檔，筆記本身走 WebSocket
+const PNG_1X1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+const shot = await post<{ name: string }>(`/api/meetings/${id}/images`, { mime: 'image/png', base64: PNG_1X1 });
+check(/^img-[0-9a-z]+-[0-9a-z]{4}\.png$/.test(shot.name), `截圖上傳後拿到伺服器產生的檔名（${shot.name}）`);
+live.send({ type: 'note', kind: 'note', text: 'Q3 營收表', image: shot.name });
+await live.waitFor<{ type: string }>((m) => m.type === 'note' && (m as { note?: { image?: string } }).note?.image === shot.name, 5000);
+
+const imgRes = await fetch(`${base}/api/meetings/${id}/images/${shot.name}`);
+check(imgRes.status === 200 && imgRes.headers.get('content-type') === 'image/png', '截圖可以用 GET 讀回來');
+const traversal = await fetch(`${base}/api/meetings/${id}/images/${encodeURIComponent('../meeting.json')}`);
+check(traversal.status === 404, '截圖路徑擋掉 ../ 穿越');
+const badMime = await fetch(`${base}/api/meetings/${id}/images`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ mime: 'image/svg+xml', base64: PNG_1X1 }),
+});
+check(badMime.status === 400, '不收 JPEG／PNG／WebP 以外的格式（SVG 可以藏 script）');
+const busy = await fetch(`${base}/api/meetings/${id}/images/${shot.name}`, { method: 'DELETE' });
+check(busy.status === 409, '已經掛在筆記上的截圖不能直接刪檔');
+
+// 貼了又刪：筆記與檔案都要消失
+const shot2 = await post<{ name: string }>(`/api/meetings/${id}/images`, { mime: 'image/png', base64: PNG_1X1 });
+live.send({ type: 'note', kind: 'note', text: '', image: shot2.name });
+const added = await live.waitFor<{ type: string; note: { id: string } }>(
+  (m) => m.type === 'note' && (m as { note?: { image?: string } }).note?.image === shot2.name,
+  5000,
+);
+live.send({ type: 'delete-note', id: added.note.id });
+await live.waitFor<{ type: string }>((m) => m.type === 'note-removed', 5000);
+check(!existsSync(path.join(meetingsDir, id, 'images', shot2.name)), '刪掉截圖筆記時連圖片檔一起刪');
+
 await live.audio(100);
 live.send({ type: 'end' });
 
@@ -263,7 +294,7 @@ const ended = await live.waitFor<{
   meeting: { segments: unknown[]; notes: { kind: string; text: string }[] };
 }>((m) => m.type === 'ended', 30000);
 const noteKinds = ended.meeting.notes.map((n) => n.kind);
-check(ended.meeting.notes.length === 3, `三次筆記事件都有存下來（實際 ${ended.meeting.notes.length}）`);
+check(ended.meeting.notes.length === 4, `環節、兩則筆記、一則截圖都有存下來（實際 ${ended.meeting.notes.length}）`);
 check(noteKinds.includes('section'), '環節標記存成 section 筆記');
 check(noteKinds.includes('todo') && noteKinds.includes('idea'), '待辦與想法分類正確');
 log(`會議結束，共 ${ended.meeting.segments.length} 段`);
@@ -271,6 +302,7 @@ log(`會議結束，共 ${ended.meeting.segments.length} 段`);
 const summarized = await post<{ markdown: string }>(`/api/meetings/${id}/summarize`);
 check(summarized.markdown.includes('TL;DR'), '摘要含 TL;DR 段落');
 check(summarized.markdown.includes('title: 煙霧測試會議'), '摘要含 YAML frontmatter');
+check(summarized.markdown.includes('收到 1 張截圖：截圖 1'), '截圖跟著提示詞送到 LLM（刪掉的那張沒送）');
 
 const dir = path.join(meetingsDir, id);
 for (const file of ['meeting.json', 'transcript.md', 'notes.md', 'minutes.md', 'audio/mic.wav']) {
@@ -291,6 +323,7 @@ check(wav.readUInt16LE(34) === 16 && wav.readUInt32LE(24) === 16000, 'wav 格式
 
 const notes = readFileSync(path.join(dir, 'notes.md'), 'utf8');
 check(notes.includes('寄報價給 Amy'), '待辦寫進 notes.md');
+check(notes.includes(`![](images/${shot.name})`), '截圖用相對路徑嵌進 notes.md');
 live.close();
 
 // ══ 第二場：Gemini（免費額度路徑） ═══════════════════════
