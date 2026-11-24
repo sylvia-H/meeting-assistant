@@ -10,10 +10,10 @@
 | 驗證 | 結果 |
 | --- | --- |
 | `npm run typecheck` | 0 錯誤 |
-| `npm test` | 56 項通過（WAV 檔頭、MIME／時長解析、重複偵測、靜音判定、開場白清除、現場轉錄的重試／換模型／切半） |
-| `npm run smoke` | 37 項通過（Typeless + Gemini 兩條路徑、假 HTTP server；假音訊改成有起伏的正弦波，全 0 會被靜音判定擋掉）。偶發 EPERM，見已知問題 |
+| `npm test` | 61 項通過（WAV 檔頭、MIME／時長解析、重複偵測、靜音判定、開場白清除、現場轉錄的重試／換模型／切半、截圖編號與三家多模態格式） |
+| `npm run smoke` | 45 項通過（含截圖上傳／讀回／路徑穿越／格式白名單／刪除；Typeless + Gemini 兩條路徑、假 HTTP server；假音訊改成有起伏的正弦波，全 0 會被靜音判定擋掉）。偶發 EPERM，見已知問題 |
 | `npm run build` | 成功（JS 36.9 kB / CSS 11.0 kB） |
-| `npm run e2e` | 21 項通過（真 headless Edge + 假麥克風，console 零錯誤；含錄音頁校正逐字稿） |
+| `npm run e2e` | 27 項通過（真 headless Edge + 假麥克風，console 零錯誤；含錄音頁校正逐字稿、模擬 Ctrl+V 貼截圖） |
 | `npm run typography` | 孤行 0 處（1440px 與 390px） |
 
 ## 可以直接跑的指令
@@ -218,6 +218,23 @@ ANC 還會主動把它濾掉）。所以錄音頁多了一個來源選單：
 - 最壞情況一段要 1–2 分鐘，所以 `end()` 等待收尾從 120 秒改 180 秒，前端 `watchEnded()` 從 150 秒改 200 秒。
 - 重試／換模型時用 `notice` 告訴使用者（「第 N 段：Gemini 暫時忙線（503），10 秒後重送同一段」）。
 
+### 14. 筆記可以貼截圖，產生紀錄時一起送 LLM
+
+- **上傳與筆記分兩步**：`POST /api/meetings/:id/images`（`{ mime, base64 }`）只存檔、回傳檔名；
+  筆記本身走 WebSocket `{ type: 'note', ..., image }` 加進錄音中的 session。理由同逐字稿校正：
+  直接寫 `meeting.json` 會被 session 下次存檔蓋掉。
+- `MeetingNote.image` 是 `images/` 底下的檔名。檔名由伺服器產生（`img-<時間>-<亂數>.jpg`），
+  讀寫都用 `isImageName()` 檢查，擋掉路徑穿越；格式只收 JPEG／PNG／WebP（SVG 可以藏 script）。
+- 前端 `src/ui/image.ts` 的 `shrinkImage()`：長邊縮到 1568px（Claude 建議值）、透明鋪白、轉 JPEG 0.88。
+- 上限 `MAX_NOTE_IMAGES = 30`（`src/core/protocol.ts`），上傳時以 `images/` 的檔案數判斷（含貼了沒送的）。
+  預覽按 × 會 `DELETE` 那張；已經掛在筆記上的圖不能直接刪檔（409），要用 `{ type: 'delete-note' }` 刪筆記，連檔案一起刪。
+- 摘要：`noteImages()` 依時間編號，`notesForPrompt()` 在筆記後標「（附截圖 N）」，
+  圖片接在整份文字素材後面，每張前面一行 `imageCaption()`（「截圖 N（X 分鐘貼上，筆記：…）」）。
+  三家格式在 `server/llm.ts` 的 `anthropicContent()`／`openaiContent()`／`geminiParts()`。
+  系統提示詞要求把圖上的數字、表格、決議整合進紀錄並標「（截圖 N）」，不要逐張描述。
+- `MOCK_LLM=1` 時假紀錄最後會多一行「收到 N 張截圖：…」，smoke／e2e 靠它確認圖有送到 LLM 這一層。
+- 尚未用真的 LLM 驗證截圖整合的品質；只有在錄音中（有 live session）才能貼，會後的紀錄頁只能看、不能貼。
+
 ## 待辦（只剩這些）
 
 1. **用真的 Gemini key 跑一場 20–30 分鐘會議**（<https://aistudio.google.com/apikey>）：
@@ -261,6 +278,7 @@ server/
   relay.ts    LiveSession：分段、Typeless / Gemini 分支、WAV、存檔
   transcript-guard.ts  鬼打牆重複偵測、靜音／底噪判定（pcmLevels、silenceReason）
   live-transcribe.ts   現場一段音訊的轉錄流程：503 重試、換模型、鬼打牆切半重送
+  store.ts 的 saveImage／readImage／removeImage   筆記截圖（會議資料夾 images/）
   gemini.ts   PCM → WAV、Gemini 逐字轉錄、ping
   gemini-file.ts  Files API 上傳／沿用／token 估算／長音檔轉錄
   ffmpeg.ts   找 ffmpeg、把長錄音切成獨立段落
