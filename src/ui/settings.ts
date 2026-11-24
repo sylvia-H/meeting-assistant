@@ -1,5 +1,5 @@
 import type { LlmProvider, SettingsView, TranscriberKind } from '../core/protocol.ts';
-import { GEMINI_TRANSCRIBE_MODELS, LLM_SUGGESTIONS, TYPELESS_MODELS } from '../core/protocol.ts';
+import { GEMINI_TRANSCRIBE_MODELS, LLM_MODEL_OPTIONS, TYPELESS_MODELS, type ModelOption } from '../core/protocol.ts';
 import { el, escapeHtml, q, setBusy, toast } from './dom.ts';
 import { errorText, type View } from './home.ts';
 import { pingGemini, pingLlm, saveSettings } from './api.ts';
@@ -7,6 +7,39 @@ import { pingGemini, pingLlm, saveSettings } from './api.ts';
 export function renderSettings(initial: SettingsView, onSaved: (next: SettingsView) => void): View {
   const root = el('div', 'page settings');
   let current = initial;
+
+  /**
+   * 模型下拉選單。以前用 <input list> + <datalist>，但瀏覽器只列出「跟目前內容相符」的建議：
+   * 欄位已經有值時清單幾乎是空的，看起來就是一般輸入框。
+   * 文字框 #id 仍是唯一的值來源（存檔、測試連線都讀它），選單只負責填它；
+   * 選「其他」才把文字框露出來自己打。清單外的既有設定會多一個「目前設定」選項，不會被悄悄換掉。
+   */
+  const CUSTOM = '__custom__';
+  function modelPicker(id: string, options: readonly ModelOption[], value: string, label: string): string {
+    const known = options.some((o) => o.id === value);
+    const items = options.map(
+      (o) => `<option value="${escapeHtml(o.id)}" ${o.id === value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`,
+    );
+    if (value && !known) items.push(`<option value="${escapeHtml(value)}" selected>${escapeHtml(value)}（目前設定）</option>`);
+    items.push(`<option value="${CUSTOM}">其他（自行輸入）…</option>`);
+    return `
+      <select id="${id}-select" data-model-for="${id}" aria-label="${escapeHtml(label)}">${items.join('')}</select>
+      <input id="${id}" type="text" class="model-custom" value="${escapeHtml(value)}" placeholder="輸入模型 ID" aria-label="${escapeHtml(label)}（自行輸入）" hidden />`;
+  }
+
+  root.addEventListener('change', (event) => {
+    const select = event.target;
+    if (!(select instanceof HTMLSelectElement) || !select.dataset.modelFor) return;
+    const input = q<HTMLInputElement>(root, `#${select.dataset.modelFor}`);
+    if (select.value === CUSTOM) {
+      input.hidden = false;
+      input.value = '';
+      input.focus();
+    } else {
+      input.hidden = true;
+      input.value = select.value;
+    }
+  });
 
   function transcriptionFields(s: SettingsView): string {
     if (s.transcriber === 'gemini') {
@@ -18,10 +51,7 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
         <div class="row">
           <label class="field">
             <span>轉錄模型</span>
-            <input id="gemini-model" type="text" list="gemini-models" value="${escapeHtml(s.transcribeModels.gemini)}" />
-            <datalist id="gemini-models">
-              ${GEMINI_TRANSCRIBE_MODELS.map((m) => `<option value="${m.id}">${m.label}</option>`).join('')}
-            </datalist>
+            ${modelPicker('gemini-model', GEMINI_TRANSCRIBE_MODELS, s.transcribeModels.gemini, '轉錄模型')}
           </label>
           <div class="field">
             <span>測試 key</span>
@@ -113,10 +143,7 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
             </label>
             <label class="field">
               <span>模型</span>
-              <input id="llm-model" type="text" list="model-options" value="${escapeHtml(s.llmModel)}" />
-              <datalist id="model-options">
-                ${LLM_SUGGESTIONS[s.llmProvider].map((m) => `<option value="${m}"></option>`).join('')}
-              </datalist>
+              ${modelPicker('llm-model', LLM_MODEL_OPTIONS[s.llmProvider], s.llmModel, '摘要模型')}
             </label>
           </div>
           <label class="field">

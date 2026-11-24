@@ -149,10 +149,34 @@ export const TRANSCRIBER_LABELS: Record<TranscriberKind, string> = {
 
 export type LlmProvider = 'anthropic' | 'openai' | 'gemini';
 
-export const LLM_SUGGESTIONS: Record<LlmProvider, string[]> = {
-  anthropic: ['claude-sonnet-4-5', 'claude-opus-4-5', 'claude-haiku-4-5'],
-  openai: ['gpt-5', 'gpt-5-mini', 'gpt-4.1'],
-  gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
+export interface ModelOption {
+  id: string;
+  label: string;
+}
+
+/**
+ * 設定頁「摘要用的 LLM」的下拉選單。清單外的模型可以選「其他（自行輸入）」。
+ * 價格是每百萬 token 的輸入／輸出（2026-11 官方定價）；一場 45 分鐘會議約 2–3 萬 token 輸入。
+ */
+export const LLM_MODEL_OPTIONS: Record<LlmProvider, ModelOption[]> = {
+  anthropic: [
+    { id: 'claude-opus-5-5', label: 'claude-opus-5-5（建議，$4／$20）' },
+    { id: 'claude-sonnet-5-5', label: 'claude-sonnet-5-5（便宜一半，$2／$10）' },
+    { id: 'claude-haiku-5-5', label: 'claude-haiku-5-5（最便宜，$0.10／$0.50）' },
+    { id: 'claude-fable-5-2', label: 'claude-fable-5-2（最強也最貴，$8／$40）' },
+  ],
+  openai: [
+    { id: 'gpt-5', label: 'gpt-5' },
+    { id: 'gpt-5-mini', label: 'gpt-5-mini（較便宜）' },
+    { id: 'gpt-4.1', label: 'gpt-4.1' },
+  ],
+  gemini: [
+    { id: 'gemini-3.1-flash-lite', label: 'gemini-3.1-flash-lite（預設，快、免費額度）' },
+    { id: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview（品質較好）' },
+    { id: 'gemini-flash-latest', label: 'gemini-flash-latest（會先思考，較慢）' },
+    { id: 'gemini-2.5-pro', label: 'gemini-2.5-pro' },
+    { id: 'gemini-2.5-flash', label: 'gemini-2.5-flash' },
+  ],
 };
 
 export interface SettingsView {

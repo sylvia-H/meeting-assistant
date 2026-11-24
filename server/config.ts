@@ -12,7 +12,7 @@ const settingsFile = path.join(dataDir, 'settings.json');
 const envFile = path.join(projectRoot, '.env');
 
 const DEFAULT_MODELS: Record<LlmProvider, string> = {
-  anthropic: 'claude-sonnet-4-5',
+  anthropic: 'claude-opus-5-5',
   openai: 'gpt-5',
   gemini: 'gemini-3.1-flash-lite',
 };

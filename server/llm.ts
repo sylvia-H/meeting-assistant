@@ -78,7 +78,8 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 8192,
+      // Claude 5 系列預設會先思考，思考的 token 也算在 max_tokens 裡；8192 可能不夠寫完整份紀錄
+      max_tokens: 16000,
       system,
       messages: [{ role: 'user', content: anthropicContent(user, images) }],
     }),

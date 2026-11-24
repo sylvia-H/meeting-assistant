@@ -215,6 +215,31 @@ const engineSwitch = await cdp.eval<string>(`(() => {
 const engineFields = JSON.parse(engineSwitch) as { gemini: boolean; typeless: boolean };
 check(engineFields.gemini && !engineFields.typeless, '切換轉錄引擎會顯示對應的 key 欄位');
 
+// 摘要模型是真的下拉選單（以前是 datalist：欄位有值時清單幾乎是空的，看起來像一般輸入框）
+const picker = await cdp.eval<string>(`(() => {
+  const select = document.querySelector('#llm-model-select');
+  const input = document.querySelector('#llm-model');
+  const before = { options: select.options.length, value: input.value, inputHidden: input.hidden };
+  select.value = 'claude-sonnet-5-5';
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  const picked = input.value;
+  select.value = '__custom__';
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  const custom = { inputHidden: input.hidden, value: input.value };
+  return JSON.stringify({ before, picked, custom });
+})()`);
+const pickerState = JSON.parse(picker) as {
+  before: { options: number; value: string; inputHidden: boolean };
+  picked: string;
+  custom: { inputHidden: boolean; value: string };
+};
+check(
+  pickerState.before.options >= 5 && pickerState.before.inputHidden && pickerState.before.value === 'claude-sonnet-4-5',
+  `摘要模型是下拉選單，清單外的既有設定保留成「目前設定」（${pickerState.before.options} 個選項）`,
+);
+check(pickerState.picked === 'claude-sonnet-5-5', '從選單選模型會寫進實際送出的欄位');
+check(!pickerState.custom.inputHidden && pickerState.custom.value === '', '選「其他」才露出輸入框讓人自己打');
+
 // ── 錄音頁 ────────────────────────────────────────────────
 await cdp.navigate(`${BASE}/#/live/${id}`);
 await until(
