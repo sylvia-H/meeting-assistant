@@ -10,10 +10,10 @@
 | 驗證 | 結果 |
 | --- | --- |
 | `npm run typecheck` | 0 錯誤 |
-| `npm test` | 38 項通過（WAV 檔頭、MIME／時長解析、重複偵測、開場白清除） |
-| `npm run smoke` | 37 項通過（Typeless + Gemini 兩條路徑、假 HTTP server） |
+| `npm test` | 56 項通過（WAV 檔頭、MIME／時長解析、重複偵測、靜音判定、開場白清除、現場轉錄的重試／換模型／切半） |
+| `npm run smoke` | 37 項通過（Typeless + Gemini 兩條路徑、假 HTTP server；假音訊改成有起伏的正弦波，全 0 會被靜音判定擋掉）。偶發 EPERM，見已知問題 |
 | `npm run build` | 成功（JS 36.9 kB / CSS 11.0 kB） |
-| `npm run e2e` | 18 項通過（真 headless Edge + 假麥克風，console 零錯誤；連續跑 3 次皆過） |
+| `npm run e2e` | 21 項通過（真 headless Edge + 假麥克風，console 零錯誤；含錄音頁校正逐字稿） |
 | `npm run typography` | 孤行 0 處（1440px 與 390px） |
 
 ## 可以直接跑的指令
@@ -108,7 +108,8 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
   `paused` → 已暫停、`ended` → 已整理／待整理。
 - 紀錄頁的 `ready` 會議顯示「尚未開始」，並多一顆「開始錄音」連到 `#/live/:id`；
   沒有逐字稿時提示先開始錄音。原本只有「標記為已結束」。
-- **這一版仍然只能即時麥克風轉錄，沒有「上傳錄音檔解析」**。在「參考資料」選音檔
+- **這一版仍然只能即時收音轉錄，沒有「上傳錄音檔解析」**（CLI 有，畫面沒有）。收音來源
+  現在有麥克風、麥克風＋分頁／系統音訊、只有系統音訊三種（見第 11 節）。在「參考資料」選音檔
   只會被當附件存進 `reference/`，不會轉錄、也不會有進度。
 - `POST /api/meetings/:id/finish` 對 `ready` 且 0 段的會議把 `endedAt` 設成 `startedAt`，
   不會留下「20 小時」的假時長。
@@ -156,6 +157,67 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
   - 沒存過 provider 時自動挑「有 key 的那一家」（anthropic → openai → gemini）。
   - 新增 `llmKeyFor()` / `llmKeySource()`，`settingsView()` 改用它，不再自己複製一份優先序。
 
+### 11. 第二個輸入來源：分頁／系統音訊
+
+線上會議裡「對方」的聲音是從喇叭／耳機放出來的，麥克風收不到（藍牙耳機的麥克風更收不到，
+ANC 還會主動把它濾掉）。所以錄音頁多了一個來源選單：
+
+| 選項 | 收什麼 | 怎麼用 |
+| --- | --- | --- |
+| 麥克風 | 只有你 | 實體會議、預設值 |
+| 麥克風＋會議音訊 | 你＋對方 | 線上會議建議用這個 |
+| 只有會議音訊 | 只有對方 | 不想錄到自己時 |
+
+- `src/ui/audio.ts` 改成 `startCapture({ mic, system })`：
+  - 麥克風走 `getUserMedia`（EC／NS／AGC 開）。
+  - 系統音訊走 `getDisplayMedia({ video: true, audio: {...} })`，**EC／NS／AGC 全關**，
+    不然 Chrome 會把會議的聲音當成回音濾掉。一定要 `video: true`（Chrome 不支援純音訊的
+    分頁分享），video track 留著不理它；使用者按瀏覽器分享列的「停止分享」時，
+    `onEnded` 會提示並自動退回「麥克風」。
+  - 兩條 stream 各接一個 gain（0.7）再進**同一個** AudioWorkletNode，Web Audio 會自動相加，
+    所以送出去就是一路 16 kHz PCM，伺服器完全不用改。
+  - worklet 宣告 `channelCount: 1` + `channelCountMode: 'explicit'`，讓立體聲的系統音訊
+    先混成單聲道；不然只讀 channel 0 會漏掉偏右聲道的聲音。
+- 錄音頁（`src/ui/live.ts`）：
+  - 來源選單存 `localStorage['meeting-assistant.audio-source']`，下次自動套用。
+  - 錄音中把選單鎖住（同一場不能換來源，換了會斷）。
+  - 選單下面是實際收到的裝置名稱（`MediaStreamTrack.label`），例如
+    「麥克風 (Realtek…) ＋ 分頁音訊」，一眼看出選錯裝置。
+  - 分享被取消、或分享時沒勾音訊 → 跳提示並**退回只收麥克風**（不會整場錄不到）。
+- 音量條加大到 112×6 px 並加邊框（原本 96×3 px 深色疊深色，根本看不到）。
+
+**Chrome 的分享音訊條件**（網站要在 secure context，`localhost` 算）：
+
+- 網頁版 Meet／Teams／Zoom：選那個**分頁**，勾「分享分頁音訊」。
+- 桌面版 Teams／Zoom：選**整個螢幕**，勾「分享系統音訊」。
+- 藍牙耳機在通話模式時，Windows 會把輸出切成 Hands-Free 裝置，系統音訊常常抓不到；
+  要收系統音，用有線耳機或喇叭最穩。
+
+### 12. 錄音頁的逐字稿可以直接校正
+
+- 每段逐字稿是一個 `<textarea class="seg-text">`（平常看起來就是內文，hover／focus 才出框線）。
+  `done` 與 `failed` 段落可編輯；收音中／轉錄中的沒有文字，不給改。
+- 存檔走既有的 WebSocket：`{ type: 'edit', index, transcript }` → `LiveSession.editTranscript()`。
+  **不能另開 HTTP 直接寫 `meeting.json`**：錄音中的 session 記憶體裡有一份 meeting，下次存檔會把修改蓋掉。
+- 停手 0.8 秒或離開輸入框就送；沒連線時先留在 `drafts`，重新連上（`open`）、按結束會議、離開頁面時補送。
+- 改過的段落 `Segment.edited = true`，標題旁顯示「已校正」。
+- `renderSegments()` 改成以段落 index 為 key 的增量更新：`state` 訊息每秒都會重畫，原本整塊
+  `innerHTML` 重寫會把正在打的字洗掉。正在編輯的段落不吃伺服器更新，離開輸入框才補畫。
+
+### 13. 現場轉錄：重試、換模型、防鬼打牆
+
+`server/live-transcribe.ts` 的 `transcribeLiveSegment()`，relay 的 `transcribeGemini()` 只負責呼叫與寫回。
+
+| 情況 | 處理 |
+| --- | --- |
+| 503／500／502／504、非每日 429、網路錯誤（`TransientGeminiError`） | 同一顆等 10 秒、20 秒各重送一次，再不行換備援模型（**只換這一段**，不改會議主模型） |
+| 每日額度用完（`DailyQuotaError`） | 直接換下一顆；`quotaExhausted` 含主模型時才把 `meeting.transcribeModel` 改掉 |
+| `MAX_TOKENS`（`MaxTokensError`，帶已吐出的文字）或尾端鬼打牆 | ≥ 40 秒就切兩半各自重送（最多兩層：180 → 90 → 45）；切到底仍卡住就保留砍掉重複後的文字並提示使用者補 |
+| key 錯、模型不存在、內容政策 | 不重試，直接失敗 |
+
+- 最壞情況一段要 1–2 分鐘，所以 `end()` 等待收尾從 120 秒改 180 秒，前端 `watchEnded()` 從 150 秒改 200 秒。
+- 重試／換模型時用 `notice` 告訴使用者（「第 N 段：Gemini 暫時忙線（503），10 秒後重送同一段」）。
+
 ## 待辦（只剩這些）
 
 1. **用真的 Gemini key 跑一場 20–30 分鐘會議**（<https://aistudio.google.com/apikey>）：
@@ -169,6 +231,13 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
    但**還沒接進畫面**：目前只能在終端機跑，app 內看不到粗進度。要做的是「上傳頁 → 背景工作 → 進度條」。
 6. `.env` 的 `GEMINI_TRANSCRIBE_MODEL` 已改成 `gemini-3-flash-preview`（原本 `gemini-3.5-flash-lite` 對大請求 503）。
    設定頁按「儲存」會把值寫進 `settings.json`，之後兩邊不同步時以設定頁為準。
+7. **現場轉錄的失敗率**（2026-11-24 盤點 5 場實際會議，180 秒一段）：失敗 22 段，其中
+   503 負載過高 9 段、`MAX_TOKENS` 9 段、靜音 3 段、斷線 1 段。180 秒中文講話約 1–2 千 token，碰不到 8192 上限，
+   `MAX_TOKENS` 幾乎可確定是模型鬼打牆重複同一句；現場路徑目前 503 不重試、`MAX_TOKENS` 直接丟掉整段。
+   ~~處理方式待裁決~~ 已裁決（2026-11-24）：**維持 180 秒，加重試與防鬼打牆**（不縮短切段：請求數會加倍、
+   對 503 幫助很小）。見第 13 節；要用真的會議再驗一次失敗率。
+8. **smoke 偶發 EPERM**（4 次 1 次）：`meeting.json.*.tmp` rename 成 `meeting.json` 時 Windows 回
+   EPERM（目標檔正被讀取）。實際使用時可能讓某次存檔失敗；可考慮 rename 撞 EPERM 時短暫重試。
 
 ## 設計決策（不要隨便改，會動到資料格式）
 
@@ -190,6 +259,8 @@ e2e 偶爾會出現：伺服器其實已經 `ended`、兩段都 `done`，但瀏�
 server/
   index.ts    HTTP 路由、靜態檔、WS upgrade、settings PUT
   relay.ts    LiveSession：分段、Typeless / Gemini 分支、WAV、存檔
+  transcript-guard.ts  鬼打牆重複偵測、靜音／底噪判定（pcmLevels、silenceReason）
+  live-transcribe.ts   現場一段音訊的轉錄流程：503 重試、換模型、鬼打牆切半重送
   gemini.ts   PCM → WAV、Gemini 逐字轉錄、ping
   gemini-file.ts  Files API 上傳／沿用／token 估算／長音檔轉錄
   ffmpeg.ts   找 ffmpeg、把長錄音切成獨立段落
@@ -199,7 +270,7 @@ server/
   config.ts   設定讀寫（server/.data/settings.json）、引擎與 key 解析
 src/
   core/       protocol.ts（TranscriberKind、Meeting.engine）、notes.ts、markdown.ts、format.ts
-  ui/         app.ts、home.ts、live.ts、result.ts、settings.ts、audio.ts、api.ts、dom.ts
+  ui/         app.ts、home.ts、live.ts、result.ts、settings.ts、audio.ts（麥克風＋系統音訊混音）、api.ts、dom.ts
   styles.css  深色、極簡、中文行高 1.75
 scripts/
   dev.ts        同時跑 API 與 Vite
@@ -209,7 +280,7 @@ scripts/
   typography.ts 中文孤行檢測（1440 / 390）
   preview.ts    首頁／紀錄頁／設定頁截圖
 public/
-  pcm-worklet.js  麥克風 → 16k PCM16（必須是獨立檔，不能進 bundler）
+  pcm-worklet.js  音訊 → 16k PCM16（必須是獨立檔，不能進 bundler）
 meetings/
   2026-11-18-1000-demo/  示範資料，可在 UI 刪除
 ```
@@ -234,14 +305,23 @@ meetings/
   本來就救不回來，標失敗才不會讓畫面永遠掛著「收音中」。
 - **靜音會讓 Gemini 自己編一份假逐字稿**（實測：11 秒數位靜音 → 「大家早安，我們現在開始
   今天的週會…」；60 秒 → 一整段有開場有結尾的假會議）。所以 `transcribeGemini()` 先用
-  `pcmRms()`（`server/transcript-guard.ts`）量音量，低於 `SILENCE_RMS = 0.002` 就不送 API，
-  直接標成失敗並說明。正常說話 RMS 約 0.07，會議室底噪約 0.001，門檻不會誤殺小聲說話。
+  `pcmLevels()`（`server/transcript-guard.ts`）量音量：每 100 ms 一個音框，看整體 RMS、
+  10 百分位（停頓）與 95 百分位（講話）。`silenceReason()` 會擋兩種：
+  - `p95 < SILENCE_PEAK (0.01)` → 「幾乎沒有聲音」
+  - `p95 < p10 × FLAT_RATIO (1.8)` → 「只有持續底噪、沒有說話的起伏」（風扇、冷氣、
+    藍牙耳機的雜訊底噪也是 0.005–0.02，只看 RMS 會漏掉）
+
+  實測正常說話 RMS ≈ 0.077、會議室底噪 ≈ 0.001、一直很平的人造底噪 ≈ 0.02。被擋下的段落
+  標成失敗、不呼叫 API（也省額度），`meeting.json` 會留下 `audioRms` / `audioPeak` 方便診斷。
 - **錄音頁的音量表以前永遠是 0**：`public/pcm-worklet.js` 的 `process()` 只把資料送去
   `port.postMessage`，沒有寫 `outputs`，所以 analyser 收到的永遠是靜音。現在會把輸入原樣
   複製到輸出（後面接 0 增益，不會從喇叭放出來），音量條才真的會動；連續 20 秒幾乎沒聲音
   也會跳一次提示。
 - **刪會議要一併收掉 live session**：以前 `DELETE /api/meetings/:id` 只刪資料夾，記憶體裡的
   `LiveSession` 之後存檔會把資料夾又寫回來。現在先 `dispose()` 再刪。
+- **藍牙耳機的麥克風收不到線上會議**：對方聲音是從耳機「播放」出來的，麥克風收不到；
+  要收會議音訊只能用分頁／系統音訊。另外藍牙在通話模式會切成 Hands-Free（單聲道、
+  Windows 的系統音訊常常抓不到），收系統音請用有線耳機或喇叭。
 - **Gemini 免費層 429 很常見**，尤其是連續跑好幾段。`transcribeUploadedFile()` 內建
   503 等 15/30 秒、429 等 60 秒的重試；重試用盡就是真的額度問題。
 
