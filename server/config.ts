@@ -186,8 +186,8 @@ export function settings(): Settings {
     llmApiKey: keyFor(file, env, llmProvider),
     llmModel: llmModels[llmProvider],
     llmModels,
-    // 優先序：引導頁／設定頁選的位置 > settings.json（測試與舊資料）> .env > 預設的「文件\Meeting Assistant」
-    meetingsDir: locatedMeetingsDir() || file.meetingsDir || env.MEETINGS_DIR || defaultLocations().meetingsDir,
+    // 優先序：引導頁／設定頁選的位置 > settings.json（測試模式用）> 預設的「文件\Meeting Assistant」
+    meetingsDir: locatedMeetingsDir() || file.meetingsDir || defaultLocations().meetingsDir,
     autoSegmentSeconds: Math.min(280, Math.max(60, file.autoSegmentSeconds ?? 180)),
     keepAudio: file.keepAudio ?? false,
   };

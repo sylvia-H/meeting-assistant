@@ -5,9 +5,10 @@
  *   它不存在＝還沒完成第一次設定，前端會顯示引導頁。
  * - 會議預設放「文件\Meeting Assistant」，設定預設放 %APPDATA%\meeting-assistant（不會被 OneDrive 同步）。
  * - MEETING_ASSISTANT_DATA_DIR 是給 smoke／e2e 用的隔離目錄：設定與 location.json 都在那裡，視為已設定好。
+ * - MEETING_ASSISTANT_APPDATA 把「應用程式資料」資料夾整個換掉（各平台都認），給 smoke-setup 隔離 location.json 用。
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isSea } from 'node:sea';
@@ -22,6 +23,7 @@ const testDataDir = process.env.MEETING_ASSISTANT_DATA_DIR ? path.resolve(proces
 /** 作業系統慣例的「應用程式資料」資料夾，location.json 與預設的設定都放這裡。 */
 export function appDataDir(): string {
   if (testDataDir) return testDataDir;
+  if (process.env.MEETING_ASSISTANT_APPDATA) return path.resolve(process.env.MEETING_ASSISTANT_APPDATA);
   if (process.platform === 'win32') {
     return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'meeting-assistant');
   }
@@ -39,20 +41,25 @@ function knownFolders(): { documents: string; desktop: string } {
   const home = os.homedir();
   const out = { documents: path.join(home, 'Documents'), desktop: path.join(home, 'Desktop') };
   if (process.platform === 'win32') {
-    const read = (name: string): string => {
-      try {
-        const text = execFileSync(
-          'reg',
-          ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders', '/v', name],
-          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true },
-        );
-        return /REG_SZ\s+(.+)/.exec(text)?.[1]?.trim() ?? '';
-      } catch {
-        return '';
-      }
-    };
-    out.documents = read('Personal') || out.documents;
-    out.desktop = read('Desktop') || out.desktop;
+    // 不用 reg query：它的輸出是 OEM 代碼頁（繁中是 CP950），用 UTF-8 解碼時「文件」、中文使用者名稱會變亂碼。
+    // 讓 PowerShell 用 .NET 問真實位置，並指定 UTF-8 輸出。
+    try {
+      const text = execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Environment]::GetFolderPath('MyDocuments'); [Environment]::GetFolderPath('Desktop')",
+        ],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 10_000 },
+      );
+      const [documents = '', desktop = ''] = text.split(/\r?\n/).map((line) => line.trim());
+      if (documents) out.documents = documents;
+      if (desktop) out.desktop = desktop;
+    } catch {
+      // 問不到就用家目錄底下的預設位置
+    }
   }
   shellFolders = out;
   return out;
@@ -75,20 +82,28 @@ interface LocationFile {
   settingsDir?: string;
 }
 
+/** location.json 存在但讀不懂：不能當成「沒設定過」，否則會重跳引導頁、看起來像 key 不見了。 */
+export class LocationCorruptError extends Error {}
+
 function readLocation(): LocationFile | null {
   const file = locationFile();
   if (!existsSync(file)) return null;
   try {
     return JSON.parse(readFileSync(file, 'utf8')) as LocationFile;
   } catch {
-    return null;
+    throw new LocationCorruptError(
+      `${file} 內容損壞，讀不出會議與設定資料夾的位置。請用文字編輯器修正，或刪掉它後重新整理（會重新選位置，原本的資料不會被刪）。`,
+    );
   }
 }
 
-/** 第一次設定（選兩個位置）完成了沒有。測試模式一律算完成。 */
+/** 第一次設定（選兩個位置）完成了沒有。測試模式一律算完成；檔案損壞也算「設定過」，交給讀取時報錯。 */
 export function isConfigured(): boolean {
-  return Boolean(testDataDir) || readLocation() !== null;
+  return Boolean(testDataDir) || existsSync(locationFile());
 }
+
+/** 測試模式：設定資料夾固定在 MEETING_ASSISTANT_DATA_DIR，不看 location.json，不能搬。 */
+export const isTestMode = (): boolean => Boolean(testDataDir);
 
 /** 設定資料夾（settings.json、.env 在這裡）。 */
 export function settingsDir(): string {
@@ -104,10 +119,15 @@ export function locatedMeetingsDir(): string {
 export function writeLocation(next: LocationFile): void {
   const merged = { ...(readLocation() ?? {}), ...next };
   mkdirSync(appDataDir(), { recursive: true });
-  writeFileSync(locationFile(), `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
+  // 先寫暫存檔再改名：寫到一半被關掉也不會留下半個檔
+  const file = locationFile();
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
+  renameSync(tmp, file);
 }
 
-const norm = (p: string): string => {
+/** 比對路徑用：去掉尾端分隔符號；Windows／Mac 的檔案系統不分大小寫，Linux 分。 */
+export const norm = (p: string): string => {
   const out = path.resolve(p).replace(/[\\/]+$/, '');
   return process.platform === 'win32' || process.platform === 'darwin' ? out.toLowerCase() : out;
 };
@@ -169,27 +189,44 @@ export function ensureWritable(dir: string, label: string): string {
 const SETTINGS_FILES = ['settings.json', '.env'];
 
 /**
- * 把設定檔（settings.json、.env）搬到新資料夾：先複製、確認讀得到內容一致，再刪舊的。
- * 目的地已有同名檔時不覆蓋，直接丟錯，避免蓋掉別份 key。
+ * 搬設定檔的第一步：把 settings.json、.env 複製到新資料夾並比對內容，回傳複製了哪些。
+ * 目的地已有同名檔時不覆蓋，直接丟錯，避免蓋掉別份 key。任何一個失敗就把已複製的清掉，舊檔不動。
+ * 舊檔要等 location.json 改指新位置之後才刪（removeSettingsFiles），中途失敗 key 也不會消失。
  */
-export function moveSettingsFiles(from: string, to: string): string[] {
+export function copySettingsFiles(from: string, to: string): string[] {
   if (norm(from) === norm(to)) return [];
   const moving = SETTINGS_FILES.filter((name) => existsSync(path.join(from, name)));
   const clash = moving.filter((name) => existsSync(path.join(to, name)));
   if (clash.length) {
     throw new Error(`新位置已經有 ${clash.join('、')}，為了不蓋掉其他設定，沒有搬移。請換一個空的資料夾，或先自己處理那些檔案。`);
   }
-  for (const name of moving) {
-    const src = path.join(from, name);
-    const dst = path.join(to, name);
-    copyFileSync(src, dst);
-    if (!readFileSync(dst).equals(readFileSync(src))) {
-      rmSync(dst, { force: true });
-      throw new Error(`複製 ${name} 後內容不一致，沒有搬移`);
+  const copied: string[] = [];
+  try {
+    for (const name of moving) {
+      const src = path.join(from, name);
+      const dst = path.join(to, name);
+      copyFileSync(src, dst);
+      copied.push(name);
+      if (!readFileSync(dst).equals(readFileSync(src))) throw new Error(`複製 ${name} 後內容不一致，沒有搬移`);
+    }
+  } catch (err) {
+    for (const name of copied) rmSync(path.join(to, name), { force: true });
+    throw err;
+  }
+  return moving;
+}
+
+/** 搬設定檔的最後一步：刪掉舊位置的檔。刪不掉的回傳檔名，讓呼叫端提示使用者自己刪（新位置已經生效）。 */
+export function removeSettingsFiles(dir: string, names: string[]): string[] {
+  const left: string[] = [];
+  for (const name of names) {
+    try {
+      rmSync(path.join(dir, name), { force: true });
+    } catch {
+      left.push(name);
     }
   }
-  for (const name of moving) rmSync(path.join(from, name), { force: true });
-  return moving;
+  return left;
 }
 
 /** 從原始碼執行時，專案資料夾裡還留著改版前的資料，啟動時提醒要手動搬哪些檔。 */

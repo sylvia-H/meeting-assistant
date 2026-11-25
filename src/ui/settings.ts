@@ -290,6 +290,7 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
       return;
     }
     setBusy(btn, true, '搬移中…');
+    const previousPath = saved.settingsPath;
     try {
       const res = await moveSettingsDir(target);
       // 只更新路徑相關欄位，畫面上其他還沒儲存的修改保留
@@ -297,6 +298,10 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
       current = { ...current, settingsPath: res.settings.settingsPath, settingsCloudRisk: res.settings.settingsCloudRisk };
       onSaved(res.settings);
       toast(res.moved.length ? `已把 ${res.moved.join('、')} 搬到 ${res.settings.settingsPath}` : `設定資料夾已換到 ${res.settings.settingsPath}`);
+      if (res.leftBehind.length) {
+        // 新位置已經生效；舊檔（含 key）刪不掉時要讓人知道，自己去刪
+        toast(`舊位置的 ${res.leftBehind.join('、')} 刪不掉（可能被其他程式開著），裡面有 key，請自己到 ${previousPath} 刪掉。`, 'error', 12000);
+      }
       // 不重畫整頁（會清掉還沒儲存的 key），只改路徑文字
       q<HTMLInputElement>(root, '#settings-dir').value = res.settings.settingsPath;
       const leadPath = root.querySelector<HTMLElement>('.lead code');

@@ -37,7 +37,9 @@ export const pickFolder = (initial: string, title: string): Promise<{ path: stri
 export const checkFolder = (path: string): Promise<{ risk: string | null }> =>
   api('/api/setup/check', { method: 'POST', body: JSON.stringify({ path }) });
 
-export const moveSettingsDir = (settingsDir: string): Promise<{ settings: SettingsView; moved: string[] }> =>
+export const moveSettingsDir = (
+  settingsDir: string,
+): Promise<{ settings: SettingsView; moved: string[]; leftBehind: string[] }> =>
   api('/api/settings/move', { method: 'POST', body: JSON.stringify({ settingsDir }) });
 
 export const imageUrl = (meetingId: string, name: string): string =>
