@@ -68,6 +68,24 @@ let port = BASE_PORT;
 // 預設只綁本機迴路：同一個 Wi-Fi 下的其他裝置不該能打開你的會議、用你的額度。
 // 真的要用平板／手機連進來再設 HOST=0.0.0.0（後果自負：沒有任何登入機制）。
 const HOST = process.env.HOST?.trim() || '127.0.0.1';
+
+/** 「未指定位址」：0.0.0.0、::、::0、0:0:0:0:0:0:0:0 都是綁全部網卡。 */
+const HOST_UNSPECIFIED = HOST === '0.0.0.0' || (isIP(HOST) === 6 && /^[0:]+$/.test(HOST));
+
+/** HOST 放進網址的寫法：未指定位址改用 127.0.0.1；IPv6 加中括號。 */
+const HOST_IN_URL = HOST_UNSPECIFIED ? '127.0.0.1' : isIP(HOST) === 6 ? `[${HOST}]` : HOST;
+
+/**
+ * HOST 正規化成瀏覽器 Host 標頭會送的樣子：轉小寫、非 ASCII 電腦名稱轉成 punycode（xn--…）。
+ * 帶 zone ID 的 IPv6（fe80::1%12）瀏覽器網址不支援，這裡會是空字串，start() 會說明後退出。
+ */
+const HOST_NAME = ((): string => {
+  try {
+    return new URL(`http://${HOST_IN_URL}`).hostname;
+  } catch {
+    return '';
+  }
+})();
 const DIST = path.join(projectRoot, 'dist');
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -151,7 +169,7 @@ function asUserError<T>(fn: () => T): T {
 }
 
 const LOOPBACK_NAMES = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
-const LOOPBACK_ONLY = LOOPBACK_NAMES.has(HOST);
+const LOOPBACK_ONLY = LOOPBACK_NAMES.has(HOST_NAME) && !HOST_UNSPECIFIED;
 
 /** Host 標頭可以接受的名稱：本機名稱；開放區網（HOST 不是本機）時另外接受 IP 位址與 HOST 本身。 */
 function allowedHostName(name: string): boolean {
@@ -159,8 +177,8 @@ function allowedHostName(name: string): boolean {
   if (LOOPBACK_ONLY) return false;
   // DNS rebinding 一定是用網域名稱（evil.example 解析到這台），用 IP 連進來的區網裝置不受影響。
   // 代價：開放區網時不能用電腦名稱（http://mypc:8787）連，只能用 IP
-  // URL 解析出的 hostname 已經轉小寫；HOST 可能是 MyPC 這種大小寫混用的電腦名稱
-  return name === HOST.toLowerCase() || isIP(name.replace(/^\[|\]$/g, '')) !== 0;
+  // 兩邊都是 URL 正規化過的 hostname：大小寫、中文電腦名稱（punycode）都一致
+  return name === HOST_NAME || isIP(name.replace(/^\[|\]$/g, '')) !== 0;
 }
 
 /**
@@ -788,8 +806,7 @@ async function openLive(id: string, ws: import('ws').WebSocket): Promise<void> {
   });
 }
 
-// 網址裡的 IPv6 位址要加中括號（http://[fe80::1]:8787）
-const shownHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : isIP(HOST) === 6 ? `[${HOST}]` : HOST;
+const shownHost = HOST_IN_URL;
 const urlFor = (p: number): string => `http://${shownHost}:${p}`;
 
 function openBrowser(url: string): void {
@@ -889,6 +906,10 @@ server.on('listening', () => {
 });
 
 async function start(): Promise<void> {
+  if (!HOST_NAME) {
+    failAndWait(`環境變數 HOST=${HOST} 沒辦法放進網址（帶 zone ID 的 IPv6 位址瀏覽器不支援），請改用 IPv4 或不帶 % 的位址。`);
+    return;
+  }
   if (!PORT_VALID) {
     failAndWait(`環境變數 PORT=${PORT_RAW} 不是 1–65535 的整數，請修正或刪掉它。`);
     return;

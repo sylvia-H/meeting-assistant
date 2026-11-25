@@ -53,9 +53,9 @@ async function waitUp(): Promise<void> {
 }
 
 /** fetch 不能改 Host 標頭，用 http 模組模擬 DNS rebinding（evil.example 解析到 127.0.0.1）。 */
-function rawRequest(pathname: string, headers: Record<string, string>, port = PORT): Promise<number> {
+function rawRequest(pathname: string, headers: Record<string, string>, port = PORT, connectTo = '127.0.0.1'): Promise<number> {
   return new Promise((resolve) => {
-    const req = httpRequest({ host: '127.0.0.1', port, path: pathname, headers }, (res) => {
+    const req = httpRequest({ host: connectTo, port, path: pathname, headers }, (res) => {
       res.resume();
       resolve(res.statusCode ?? 0);
     });
@@ -210,6 +210,36 @@ try {
     check((await rawRequest('/api/health', { host: `192.168.1.5:${PORT + 2}` }, PORT + 2)) === 200, '開放區網時用 IP 連線照常');
     check((await rawRequest('/api/health', { host: `evil.example:${PORT + 2}` }, PORT + 2)) === 403, '開放區網時仍擋 DNS rebinding');
   });
+
+  // HOST=LocalHost（大小寫混用）仍是只限本機：用區網 IP 當 Host 要被擋。
+  // 連線用 localhost：Windows 會把 LocalHost 解析成 ::1 來監聽，跟伺服器用同一種解析
+  await withServer({ HOST: 'LocalHost' }, PORT + 4, async () => {
+    check((await rawRequest('/api/health', { host: `localhost:${PORT + 4}` }, PORT + 4, 'localhost')) === 200, 'HOST=LocalHost 用本機名稱連線照常');
+    check((await rawRequest('/api/health', { host: `192.168.1.5:${PORT + 4}` }, PORT + 4, 'localhost')) === 403, 'HOST=LocalHost 不會被當成開放區網');
+  });
+
+  // 帶 zone ID 的 IPv6 放不進網址：說明後退出，不能組出壞掉的網址
+  {
+    const child = spawn(process.execPath, ['server/index.ts'], {
+      cwd: root,
+      env: { ...env, HOST: 'fe80::1%12', PORT: String(PORT + 5) },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    child.stdout.on('data', (c: Buffer) => (out += c.toString()));
+    child.stderr.on('data', (c: Buffer) => (out += c.toString()));
+    const exitCode = await new Promise<number | null>((resolve) => {
+      const timer = setTimeout(() => {
+        child.kill();
+        resolve(-1);
+      }, 15_000);
+      child.on('exit', (c) => {
+        clearTimeout(timer);
+        resolve(c);
+      });
+    });
+    check(exitCode === 1 && out.includes('zone ID'), '帶 zone ID 的 IPv6 HOST 說明後退出');
+  }
 
   // HOST 設成特定位址：用那個位址連線照常（以前會整個 403）。Mac 預設沒有 127.0.0.2，跳過
   if (process.platform !== 'darwin') await withServer({ HOST: '127.0.0.2' }, PORT + 3, async () => {

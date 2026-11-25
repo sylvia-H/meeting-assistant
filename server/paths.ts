@@ -35,27 +35,52 @@ const locationFile = (): string => path.join(appDataDir(), 'location.json');
 
 let shellFolders: { documents: string; desktop: string } | null = null;
 
-/** 「文件」與「桌面」的真實位置。公司電腦常被 OneDrive 轉走，不能只看 ~/Documents。 */
+type Folders = { documents?: string; desktop?: string };
+
+/**
+ * 「文件」與「桌面」的真實位置。公司電腦常被 OneDrive 轉走，不能只看 ~/Documents。
+ * 先問 PowerShell；缺哪個再從登錄檔補（兩個欄位各自判斷，讀到一個就留一個）。
+ */
 function knownFolders(): { documents: string; desktop: string } {
   if (shellFolders) return shellFolders;
   const home = os.homedir();
   const out = { documents: path.join(home, 'Documents'), desktop: path.join(home, 'Desktop') };
   if (process.platform === 'win32') {
-    const found = foldersFromPowerShell() ?? foldersFromRegistry();
-    if (found) Object.assign(out, found);
+    let found: Folders = foldersFromPowerShell();
+    if (!found.documents || !found.desktop) found = { ...foldersFromRegistry(), ...found };
+    if (found.documents) out.documents = found.documents;
+    if (found.desktop) out.desktop = found.desktop;
   }
   shellFolders = out;
   return out;
 }
 
 /** 看起來是完整的路徑，而且沒有解碼失敗的 U+FFFD（亂碼）。 */
-const looksLikePath = (p: string): boolean => path.win32.isAbsolute(p) && !p.includes('\uFFFD');
+const looksLikePath = (p: string | undefined): p is string =>
+  typeof p === 'string' && path.win32.isAbsolute(p) && !p.includes('\uFFFD');
+
+/** 只留下看起來正確的欄位。 */
+function validFolders(documents: string | undefined, desktop: string | undefined): Folders {
+  const out: Folders = {};
+  if (looksLikePath(documents)) out.documents = documents;
+  if (looksLikePath(desktop)) out.desktop = desktop;
+  return out;
+}
+
+/** 清理用：刪不掉（被防毒或其他程式鎖住）就算了，不能蓋掉真正的結果或錯誤。 */
+function removeQuietly(file: string): void {
+  try {
+    rmSync(file, { force: true });
+  } catch {
+    // 留在暫存資料夾，系統之後會清
+  }
+}
 
 /**
  * 讓 PowerShell 用 .NET 問真實位置，指定 UTF-8 輸出（reg query 的輸出是 OEM 代碼頁，繁中是 CP950，
- * 用 UTF-8 解碼會變亂碼）。被公司政策擋掉、或受限語言模式下編碼設定沒生效（輸出成亂碼）時回 null。
+ * 用 UTF-8 解碼會變亂碼）。被公司政策擋掉、或受限語言模式下編碼設定沒生效（輸出成亂碼）的欄位不回傳。
  */
-export function foldersFromPowerShell(): { documents: string; desktop: string } | null {
+export function foldersFromPowerShell(): Folders {
   try {
     const text = execFileSync(
       'powershell.exe',
@@ -67,37 +92,65 @@ export function foldersFromPowerShell(): { documents: string; desktop: string } 
       ],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 10_000 },
     );
-    const [documents = '', desktop = ''] = text.split(/\r?\n/).map((line) => line.trim());
-    return looksLikePath(documents) && looksLikePath(desktop) ? { documents, desktop } : null;
+    const [documents, desktop] = text.split(/\r?\n/).map((line) => line.trim());
+    return validFolders(documents, desktop);
   } catch {
-    return null;
+    return {};
   }
 }
 
 /**
- * 備援：把登錄檔匯出成檔案再讀。reg export 一律寫 UTF-16LE，不經過主控台代碼頁，
- * 中文不會變亂碼，也不用 chcp（chcp 會改到共用主控台的代碼頁）。
+ * 從 reg export 的 .reg 檔內容讀出一個值。支援兩種寫法：
+ * - "Personal"="C:\\Users\\x\\Documents"（REG_SZ，反斜線跳脫成兩個）
+ * - "Personal"=hex(2):25,00,55,00,...（REG_EXPAND_SZ，UTF-16LE 位元組，可能用 \ 換行接續），
+ *   內容裡的 %USERPROFILE% 這類變數用 env 展開
+ * 找不到或格式不認得回空字串。
  */
-export function foldersFromRegistry(): { documents: string; desktop: string } | null {
-  const file = path.join(os.tmpdir(), `meeting-assistant-shell-${process.pid}.reg`);
-  try {
-    execFileSync('reg', ['export', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders', file, '/y'], {
-      stdio: 'ignore',
-      windowsHide: true,
-      timeout: 10_000,
-    });
-    const text = readFileSync(file, 'utf16le');
-    // .reg 檔裡的值是 "Personal"="C:\\Users\\..."：反斜線被跳脫成兩個
-    const read = (name: string): string =>
-      new RegExp(`^"${name}"="(.*)"\\s*$`, 'm').exec(text)?.[1]?.replace(/\\\\/g, '\\') ?? '';
-    const documents = read('Personal');
-    const desktop = read('Desktop');
-    return looksLikePath(documents) && looksLikePath(desktop) ? { documents, desktop } : null;
-  } catch {
-    return null;
-  } finally {
-    rmSync(file, { force: true });
+export function parseRegValue(text: string, name: string, env: NodeJS.ProcessEnv = process.env): string {
+  const lines = text.split(/\r?\n/);
+  const prefix = `"${name}"=`;
+  const i = lines.findIndex((line) => line.startsWith(prefix));
+  if (i < 0) return '';
+  let raw = (lines[i] ?? '').slice(prefix.length);
+  for (let j = i; (lines[j] ?? '').endsWith('\\') && j + 1 < lines.length; j++) {
+    raw = raw.slice(0, -1) + (lines[j + 1] ?? '').trim();
   }
+  if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1).replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+  const hex = /^hex\(2\):([0-9a-fA-F,\s]*)$/.exec(raw);
+  if (!hex) return '';
+  const bytes = (hex[1] ?? '').split(',').map((b) => b.trim()).filter(Boolean).map((b) => parseInt(b, 16));
+  const value = Buffer.from(bytes).toString('utf16le').replace(/\0+$/, '');
+  // Windows 的環境變數不分大小寫
+  const lookup = new Map(Object.entries(env).map(([k, v]) => [k.toLowerCase(), v ?? '']));
+  return value.replace(/%([^%]+)%/g, (whole, key: string) => lookup.get(key.toLowerCase()) ?? whole);
+}
+
+/** 匯出一個登錄機碼成 .reg 檔（UTF-16LE，不經過主控台代碼頁），回傳內容；失敗回空字串。 */
+function exportRegistryKey(key: string): string {
+  const file = path.join(os.tmpdir(), `meeting-assistant-${process.pid}-${Date.now()}.reg`);
+  try {
+    execFileSync('reg', ['export', key, file, '/y'], { stdio: 'ignore', windowsHide: true, timeout: 10_000 });
+    return readFileSync(file, 'utf16le');
+  } catch {
+    return '';
+  } finally {
+    removeQuietly(file);
+  }
+}
+
+/**
+ * 備援：讀登錄檔。優先讀權威的 User Shell Folders（可能含 %USERPROFILE%，要展開），
+ * 缺的再看舊版相容用的 Shell Folders。用 reg export 而不是 reg query：不用 chcp，中文不會變亂碼。
+ */
+export function foldersFromRegistry(): Folders {
+  const base = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer';
+  const user = exportRegistryKey(`${base}\\User Shell Folders`);
+  let found = validFolders(parseRegValue(user, 'Personal'), parseRegValue(user, 'Desktop'));
+  if (!found.documents || !found.desktop) {
+    const legacy = exportRegistryKey(`${base}\\Shell Folders`);
+    found = { ...validFolders(parseRegValue(legacy, 'Personal'), parseRegValue(legacy, 'Desktop')), ...found };
+  }
+  return found;
 }
 
 export interface LocationDefaults {
@@ -161,7 +214,7 @@ export function writeLocation(next: LocationFile): void {
     writeFileSync(tmp, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
     renameSync(tmp, file);
   } catch (err) {
-    rmSync(tmp, { force: true });
+    removeQuietly(tmp);
     throw err;
   }
 }

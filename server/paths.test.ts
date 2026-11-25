@@ -8,6 +8,7 @@ import {
   copySettingsFiles,
   foldersFromPowerShell,
   foldersFromRegistry,
+  parseRegValue,
   ensureWritable,
   isConfigured,
   LocationCorruptError,
@@ -130,11 +131,39 @@ test('location.json：原子寫入，損壞時報錯而不是當成沒設定過'
   }
 });
 
-test('「文件」「桌面」：PowerShell 與登錄檔備援讀到一樣的完整路徑', { skip: process.platform !== 'win32' }, () => {
+test('「文件」「桌面」：PowerShell 與登錄檔備援讀到一樣的完整路徑', { skip: process.platform !== 'win32' }, (t) => {
   const ps = foldersFromPowerShell();
+  // PowerShell 被公司政策擋掉的電腦：沒有東西可以比對，產品會走備援，不算失敗
+  if (!ps.documents || !ps.desktop) {
+    t.skip('這台電腦的 PowerShell 讀不到');
+    return;
+  }
   const reg = foldersFromRegistry();
-  assert.ok(ps && path.win32.isAbsolute(ps.documents) && path.win32.isAbsolute(ps.desktop));
-  assert.ok(reg, '登錄檔備援讀得到');
+  assert.ok(reg.documents && reg.desktop, '登錄檔備援讀得到');
   assert.equal(reg.documents.toLowerCase(), ps.documents.toLowerCase());
   assert.equal(reg.desktop.toLowerCase(), ps.desktop.toLowerCase());
+});
+
+test('parseRegValue：REG_EXPAND_SZ（hex(2)、換行接續、%變數% 展開，變數不分大小寫）', () => {
+  // 這段是本機 reg export 的實際格式：%USERPROFILE%\Documents
+  const text = [
+    'Windows Registry Editor Version 5.00',
+    '',
+    '[HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders]',
+    '"Personal"=hex(2):25,00,55,00,53,00,45,00,52,00,50,00,52,00,4f,00,46,00,49,00,\\',
+    '  4c,00,45,00,25,00,5c,00,44,00,6f,00,63,00,75,00,6d,00,65,00,6e,00,74,00,73,\\',
+    '  00,00,00',
+    '"Desktop"="D:\\\\OneDrive - 台灣公司\\\\桌面"',
+    '',
+  ].join('\r\n');
+  assert.equal(parseRegValue(text, 'Personal', { UserProfile: 'C:\\Users\\王小明' }), 'C:\\Users\\王小明\\Documents');
+  assert.equal(parseRegValue(text, 'Desktop'), 'D:\\OneDrive - 台灣公司\\桌面');
+});
+
+test('parseRegValue：找不到、格式不認得、變數沒有定義', () => {
+  const text = '"Personal"=dword:00000001\r\n"Desktop"=hex(2):25,00,58,00,25,00,00,00\r\n';
+  assert.equal(parseRegValue(text, 'Music'), '');
+  assert.equal(parseRegValue(text, 'Personal'), '', 'dword 不是路徑');
+  assert.equal(parseRegValue(text, 'Desktop', {}), '%X%', '沒定義的變數保留原樣（之後會被當成不是完整路徑）');
+  assert.equal(parseRegValue('', 'Personal'), '');
 });
