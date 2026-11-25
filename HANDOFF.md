@@ -16,7 +16,7 @@
 | `npm run e2e` | 36 項通過（真 headless Edge + 假麥克風，console 零錯誤；含新版面、與會者、模擬 Ctrl+V 貼截圖、會後改逐字稿與筆記） |
 | `npm run typography` | 孤行 0 處（1440px 與 390px） |
 
-## 分支 `feat/exe-packaging`（2026-11-25，尚未合併）
+## 分支 `feat/exe-packaging`（2026-11-25，已合併回 main）
 
 讓同事不用 clone、不用裝 Node 就能用：打包成單一 `meeting-assistant.exe`，並把資料搬出專案資料夾。
 裁決過程見「待辦」第 9 項。
