@@ -1119,7 +1119,8 @@ body.resizing {
 .composer,
 .dock .legend {
   max-width: 680px;
-  margin: 0 auto;
+  margin-right: auto;
+  margin-left: auto;
 }
 
 .composer {
@@ -1154,8 +1155,8 @@ body.resizing {
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-top: 8px;
+  gap: 6px 14px;
+  margin-top: 10px;
   color: var(--mute);
   font-size: 12px;
 }
