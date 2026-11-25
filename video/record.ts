@@ -40,8 +40,19 @@ const EXTRA: Record<string, number> = { s0: 1.2, s1: 0.6, s2: 1.5, s3: 1.5, s4: 
 const sceneLength = (id: string): number => LEAD + timing[id] + (EXTRA[id] ?? 0.6);
 
 // ── 暫存環境 ──────────────────────────────────────────────
-rmSync(demoRoot, { recursive: true, force: true });
+// 暫存資料夾是寫死的路徑，遞迴刪除前必須確認是自己建的：裡面有標記檔才刪；
+// 資料夾已存在卻沒有標記（可能是別人的資料）就中止，不動它。
+const MARKER = '.ma-demo-marker';
+const isOurs = (): boolean => existsSync(path.join(demoRoot, MARKER));
+function removeDemoRoot(): void {
+  if (isOurs()) rmSync(demoRoot, { recursive: true, force: true });
+}
+if (existsSync(demoRoot) && !isOurs()) {
+  throw new Error(`${demoRoot} 已存在，而且不是這支腳本建立的（沒有 ${MARKER}）。請自行確認內容後改名或刪除，再重跑。`);
+}
+removeDemoRoot();
 mkdirSync(demoRoot, { recursive: true });
+writeFileSync(path.join(demoRoot, MARKER), 'created by video/record.ts');
 const meetingsDir = path.join(demoRoot, 'meetings');
 const settingsDir = path.join(demoRoot, 'settings');
 
@@ -176,7 +187,7 @@ function cleanup(): void {
 }
 process.on('exit', () => {
   cleanup();
-  rmSync(demoRoot, { recursive: true, force: true });
+  removeDemoRoot();
 });
 process.on('SIGINT', () => {
   cleanup();
@@ -556,5 +567,5 @@ for (const id of run) {
 if (cdp.consoleErrors.length) process.stdout.write(`  console 錯誤：${cdp.consoleErrors.join(' | ')}\n`);
 cleanup();
 await sleep(300);
-if (existsSync(demoRoot)) rmSync(demoRoot, { recursive: true, force: true });
+removeDemoRoot();
 process.exit(0);
