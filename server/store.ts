@@ -5,7 +5,7 @@ import type { Meeting, MeetingNote, MeetingSummary, ReferenceFile, Segment } fro
 import { formatClock, formatDate, formatDateTime, formatDurationZh } from '../src/core/format.ts';
 import { NOTE_KINDS, KIND_ORDER } from '../src/core/notes.ts';
 import { parseAttendees } from '../src/core/attendees.ts';
-import { projectRoot, settings } from './config.ts';
+import { meetingsPath, settings } from './config.ts';
 
 const TEXT_EXT = new Set([
   '.md', '.txt', '.json', '.csv', '.tsv', '.yaml', '.yml', '.html', '.htm',
@@ -13,7 +13,7 @@ const TEXT_EXT = new Set([
 ]);
 
 export function meetingsRoot(): string {
-  return path.resolve(projectRoot, settings().meetingsDir);
+  return meetingsPath();
 }
 
 export function meetingDir(id: string): string {

@@ -10,7 +10,9 @@
     "start": "node server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\" \"server/**/*.test.ts\"",
-    "smoke": "node scripts/smoke.ts",
+    "smoke": "node scripts/smoke.ts && node scripts/smoke-setup.ts",
+    "smoke:exe": "node scripts/smoke.ts --exe",
+    "package": "node scripts/package.ts",
     "e2e": "node scripts/e2e.ts",
     "typography": "node scripts/typography.ts",
     "preview": "node scripts/preview.ts"
@@ -21,6 +23,7 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/ws": "^8.18.1",
+    "rolldown": "^1.2.19",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
   }

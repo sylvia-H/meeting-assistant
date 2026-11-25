@@ -1,4 +1,4 @@
-import type { Meeting, MeetingSummary, SettingsView } from '../core/protocol.ts';
+import type { Meeting, MeetingSummary, SettingsView, SetupView } from '../core/protocol.ts';
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
@@ -22,6 +22,25 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const getSettings = (): Promise<SettingsView> => api<SettingsView>('/api/settings');
+
+// ── 資料位置（第一次啟動的引導頁、設定頁） ─────────────────
+export const getSetup = (): Promise<SetupView> => api<SetupView>('/api/setup');
+
+export const completeSetup = (input: { meetingsDir: string; settingsDir: string }): Promise<SetupView> =>
+  api<SetupView>('/api/setup', { method: 'POST', body: JSON.stringify(input) });
+
+/** 叫出系統的選資料夾視窗；按取消時 path 是 null。 */
+export const pickFolder = (initial: string, title: string): Promise<{ path: string | null; risk: string | null }> =>
+  api('/api/setup/pick', { method: 'POST', body: JSON.stringify({ initial, title }) });
+
+/** 這個位置會不會被同步到雲端（給紅字提示用）。 */
+export const checkFolder = (path: string): Promise<{ risk: string | null }> =>
+  api('/api/setup/check', { method: 'POST', body: JSON.stringify({ path }) });
+
+export const moveSettingsDir = (
+  settingsDir: string,
+): Promise<{ settings: SettingsView; moved: string[]; leftBehind: string[] }> =>
+  api('/api/settings/move', { method: 'POST', body: JSON.stringify({ settingsDir }) });
 
 export const imageUrl = (meetingId: string, name: string): string =>
   `/api/meetings/${encodeURIComponent(meetingId)}/images/${encodeURIComponent(name)}`;

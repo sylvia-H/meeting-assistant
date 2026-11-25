@@ -2,14 +2,19 @@ import { mkdirSync, readFileSync, statSync, writeFileSync, existsSync } from 'no
 import path from 'node:path';
 import type { LlmProvider, SettingsView, TranscriberKind } from '../src/core/protocol.ts';
 import { DEFAULT_GEMINI_TRANSCRIBE_MODEL } from '../src/core/protocol.ts';
+import { cloudRisk, defaultLocations, locatedMeetingsDir, projectRoot, runningAsExe, settingsDir } from './paths.ts';
 
-export const projectRoot = path.resolve(import.meta.dirname, '..');
-// MEETING_ASSISTANT_DATA_DIR 是給 smoke test 用的隔離目錄
-const dataDir = process.env.MEETING_ASSISTANT_DATA_DIR
-  ? path.resolve(process.env.MEETING_ASSISTANT_DATA_DIR)
-  : path.join(projectRoot, 'server', '.data');
-const settingsFile = path.join(dataDir, 'settings.json');
-const envFile = path.join(projectRoot, '.env');
+export { projectRoot };
+
+// 設定資料夾可以在設定頁換，所以每次都重新算路徑，不在載入時固定
+const settingsFile = (): string => path.join(settingsDir(), 'settings.json');
+
+/** 讀 .env 的位置：設定資料夾；exe 版另外讀 exe 旁邊的那份（設定資料夾優先）。 */
+function envFiles(): string[] {
+  const files = [path.join(settingsDir(), '.env')];
+  if (runningAsExe) files.push(path.join(projectRoot, '.env'));
+  return files;
+}
 
 const DEFAULT_MODELS: Record<LlmProvider, string> = {
   anthropic: 'claude-opus-5-5',
@@ -52,23 +57,26 @@ export interface Settings {
 }
 
 function readEnvFile(): Record<string, string> {
-  const file = envFile;
-  if (!existsSync(file)) return {};
   const out: Record<string, string> = {};
-  for (const raw of readFileSync(file, 'utf8').split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    const eq = line.indexOf('=');
-    if (eq < 1) continue;
-    out[line.slice(0, eq).trim()] = line.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+  // 清單前面的優先：反著讀，讓前面的檔案蓋掉後面的
+  for (const file of [...envFiles()].reverse()) {
+    if (!existsSync(file)) continue;
+    for (const raw of readFileSync(file, 'utf8').split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq < 1) continue;
+      out[line.slice(0, eq).trim()] = line.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+    }
   }
   return out;
 }
 
 function readFile(): FileSettings {
-  if (!existsSync(settingsFile)) return {};
+  const file = settingsFile();
+  if (!existsSync(file)) return {};
   try {
-    return JSON.parse(readFileSync(settingsFile, 'utf8')) as FileSettings;
+    return JSON.parse(readFileSync(file, 'utf8')) as FileSettings;
   } catch {
     return {};
   }
@@ -82,15 +90,16 @@ export function writeSettings(patch: Partial<FileSettings>): void {
     llmKeys: { ...(current.llmKeys ?? {}), ...(patch.llmKeys ?? {}) },
     llmModels: { ...(current.llmModels ?? {}), ...(patch.llmModels ?? {}) },
   };
-  if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
-  writeFileSync(settingsFile, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+  const dir = settingsDir();
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(settingsFile(), `${JSON.stringify(next, null, 2)}\n`, 'utf8');
   cached = null;
 }
 
 let cached: Settings | null = null;
 let cachedStamp = '';
 
-/** settings.json 或 .env 被改過就讓快取失效，改 .env 不用重啟伺服器。 */
+/** settings.json 或 .env 被改過（或設定資料夾換了）就讓快取失效，改 .env 不用重啟伺服器。 */
 function fileStamp(): string {
   const one = (file: string): string => {
     try {
@@ -100,7 +109,8 @@ function fileStamp(): string {
       return 'missing';
     }
   };
-  return `${one(settingsFile)}|${one(envFile)}`;
+  const files = [settingsFile(), ...envFiles()];
+  return files.map((file) => `${file}=${one(file)}`).join('|');
 }
 
 type EnvRecord = Record<string, string | undefined>;
@@ -176,7 +186,8 @@ export function settings(): Settings {
     llmApiKey: keyFor(file, env, llmProvider),
     llmModel: llmModels[llmProvider],
     llmModels,
-    meetingsDir: file.meetingsDir || env.MEETINGS_DIR || 'meetings',
+    // 優先序：引導頁／設定頁選的位置 > settings.json（測試模式用）> 預設的「文件\Meeting Assistant」
+    meetingsDir: locatedMeetingsDir() || file.meetingsDir || defaultLocations().meetingsDir,
     autoSegmentSeconds: Math.min(280, Math.max(60, file.autoSegmentSeconds ?? 180)),
     keepAudio: file.keepAudio ?? false,
   };
@@ -188,6 +199,18 @@ function mask(key: string): string {
   if (!key) return '';
   if (key.length <= 8) return '••••';
   return `••••${key.slice(-4)}`;
+}
+
+let portNote: string | null = null;
+
+/** 預設 port 被占用、自動換了 port 時，設定頁要顯示的小字。 */
+export function setPortNote(note: string | null): void {
+  portNote = note;
+}
+
+/** 會議資料夾的完整路徑；相對路徑以設定資料夾為基準。 */
+export function meetingsPath(): string {
+  return path.resolve(settingsDir(), settings().meetingsDir);
 }
 
 export function settingsView(): SettingsView {
@@ -204,7 +227,10 @@ export function settingsView(): SettingsView {
     typelessModel: s.typelessModel,
     language: s.language,
     meetingsDir: s.meetingsDir,
-    meetingsPath: path.resolve(projectRoot, s.meetingsDir),
+    meetingsPath: meetingsPath(),
+    settingsPath: settingsDir(),
+    settingsCloudRisk: cloudRisk(settingsDir()),
+    portNote,
     autoSegmentSeconds: s.autoSegmentSeconds,
     keepAudio: s.keepAudio,
     llmProvider: s.llmProvider,

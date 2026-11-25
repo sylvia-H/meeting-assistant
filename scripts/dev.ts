@@ -6,7 +6,9 @@ const root = path.resolve(import.meta.dirname, '..');
 const children: ChildProcess[] = [];
 
 function run(label: string, command: string, args: string[], color: string): ChildProcess {
-  const child = spawn(command, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+  // Vite 的 proxy 固定指向 8787，API 不能自己換 port，否則網頁會連不上 API
+  const env = { ...process.env, MEETING_ASSISTANT_FIXED_PORT: '1' };
+  const child = spawn(command, args, { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
   const prefix = `\x1b[${color}m[${label}]\x1b[0m `;
   const forward = (chunk: Buffer): void => {
     for (const line of chunk.toString().split(/\r?\n/)) {

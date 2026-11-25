@@ -7,7 +7,26 @@ import { spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { MAX_NOTE_IMAGES, type Meeting, type ServerMessage } from '../src/core/protocol.ts';
 import { formatClock, formatDate, formatDurationZh } from '../src/core/format.ts';
-import { invalidateSettings, projectRoot, settings, settingsView, writeSettings } from './config.ts';
+import { invalidateSettings, meetingsPath, projectRoot, setPortNote, settings, settingsView, writeSettings } from './config.ts';
+import {
+  cloudRisk,
+  warmKnownFolders,
+  defaultLocations,
+  ensureWritable,
+  isConfigured,
+  legacyDataHints,
+  copySettingsFiles,
+  isTestMode,
+  norm,
+  removeSettingsFiles,
+  pickFolder,
+  runningAsExe,
+  settingsDir,
+  writeLocation,
+} from './paths.ts';
+import { getAsset, isSea } from 'node:sea';
+import { isIP } from 'node:net';
+import type { SetupView } from '../src/core/protocol.ts';
 import {
   addReferences,
   countImages,
@@ -40,10 +59,59 @@ import { generateMinutes, pingLlm, type PromptImage } from './llm.ts';
 import { pingGemini } from './gemini.ts';
 import { LiveSession } from './relay.ts';
 
-const PORT = Number(process.env.PORT ?? 8787);
+const PORT_RAW = process.env.PORT?.trim() ?? '';
+const BASE_PORT = PORT_RAW ? Number(PORT_RAW) : 8787;
+const PORT_VALID = Number.isInteger(BASE_PORT) && BASE_PORT >= 1 && BASE_PORT <= 65535;
+// 自己指定 PORT，或 npm run dev（Vite 的 proxy 固定指向 8787）時不自動換 port
+const PORT_FIXED = Boolean(PORT_RAW) || Boolean(process.env.MEETING_ASSISTANT_FIXED_PORT);
+const PORT_TRIES = 10;
+let port = BASE_PORT;
 // 預設只綁本機迴路：同一個 Wi-Fi 下的其他裝置不該能打開你的會議、用你的額度。
 // 真的要用平板／手機連進來再設 HOST=0.0.0.0（後果自負：沒有任何登入機制）。
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST?.trim() || '127.0.0.1';
+
+/**
+ * HOST 用 URL 正規化一次，之後的判斷都看這個：轉小寫、中文電腦名稱轉 punycode（xn--…）、
+ * IP 的各種寫法統一（0 → 0.0.0.0、::0 → [::]、::ffff:127.0.0.1 → [::ffff:7f00:1]）。
+ * 放不進網址（帶 zone ID 的 IPv6、含空白等）時是空字串，start() 會說明後退出。
+ */
+const HOST_PARSED = ((): string => {
+  try {
+    return new URL(`http://${isIP(HOST) === 6 ? `[${HOST}]` : HOST}`).hostname;
+  } catch {
+    return '';
+  }
+})();
+
+/** 「未指定位址」（綁全部網卡）：0.0.0.0、[::]，以及 IPv4 對應到 IPv6 的寫法。 */
+const HOST_UNSPECIFIED = ['0.0.0.0', '[::]', '[::ffff:0:0]'].includes(HOST_PARSED);
+
+/** 本機迴路的名稱：localhost、127.x.x.x、[::1]，以及 IPv4 對應到 IPv6 的 127.x.x.x。 */
+function isLoopbackName(name: string): boolean {
+  return (
+    name === 'localhost' ||
+    name === '[::1]' ||
+    name === '::1' ||
+    (isIP(name) === 4 && name.startsWith('127.')) ||
+    /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(name)
+  );
+}
+
+/** 顯示與自動開啟用的網址主機：未指定位址改用 127.0.0.1；其餘用正規化後的寫法（IPv6 已有中括號）。 */
+const HOST_IN_URL = HOST_UNSPECIFIED ? '127.0.0.1' : HOST_PARSED;
+
+/** 跟瀏覽器送來的 Host 比對用的名稱。 */
+const HOST_NAME = HOST_PARSED;
+
+/**
+ * 實際監聽的位址：也用正規化後的寫法（HOST=0 原樣交給 listen 會被當成電腦名稱去查 DNS 而失敗）。
+ * 未指定位址：IPv4 寫法綁 0.0.0.0，IPv6 寫法綁 ::；IPv6 位址去掉中括號。
+ */
+const LISTEN_HOST = HOST_UNSPECIFIED
+  ? HOST_PARSED === '0.0.0.0'
+    ? '0.0.0.0'
+    : '::'
+  : HOST_PARSED.replace(/^\[|\]$/g, '');
 const DIST = path.join(projectRoot, 'dist');
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -106,9 +174,157 @@ function normalizeMinutes(text: string, meeting: Meeting): string {
   return `${front}${body}\n`;
 }
 
+const samePath = (a: string, b: string): boolean => norm(a) === norm(b);
+
+function setupView(): SetupView {
+  return {
+    configured: isConfigured(),
+    defaults: defaultLocations(),
+    current: { meetingsDir: meetingsPath(), settingsDir: settingsDir() },
+    canPick: process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux',
+  };
+}
+
+/** 使用者輸入造成的錯誤（路徑不能寫、目的地已有設定檔）回 400，不當成伺服器錯誤記 log。 */
+function asUserError<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    throw new HttpError(400, err instanceof Error ? err.message : String(err));
+  }
+}
+
+const LOOPBACK_ONLY = isLoopbackName(HOST_NAME) && !HOST_UNSPECIFIED;
+
+/** Host 標頭可以接受的名稱：本機名稱；開放區網（HOST 不是本機）時另外接受 IP 位址與 HOST 本身。 */
+function allowedHostName(name: string): boolean {
+  if (isLoopbackName(name)) return true;
+  if (LOOPBACK_ONLY) return false;
+  // DNS rebinding 一定是用網域名稱（evil.example 解析到這台），用 IP 連進來的區網裝置不受影響。
+  // 代價：開放區網時不能用電腦名稱（http://mypc:8787）連，只能用 IP
+  // 兩邊都是 URL 正規化過的 hostname：大小寫、中文電腦名稱（punycode）都一致
+  return name === HOST_NAME || isIP(name.replace(/^\[|\]$/g, '')) !== 0;
+}
+
+/**
+ * 只接受本機頁面發出的請求（所有 API 與 WebSocket）：
+ * - Host 必須是本機名稱（開放區網時另可是 IP）：擋 DNS rebinding（evil.example 解析到 127.0.0.1 時，瀏覽器會當成同源）。
+ * - 有 Origin 時必須是本機或跟 Host 同一個：擋別的網站偷偷改資料位置、叫出選資料夾視窗、連 WebSocket。
+ */
+function isLocalRequest(req: IncomingMessage): boolean {
+  const hostHeader = req.headers.host ?? '';
+  let hostName = '';
+  try {
+    hostName = new URL(`http://${hostHeader}`).hostname;
+  } catch {
+    return false;
+  }
+  if (!allowedHostName(hostName)) return false;
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    const o = new URL(origin);
+    return isLoopbackName(o.hostname) || o.host === hostHeader;
+  } catch {
+    return false;
+  }
+}
+
+async function handleSetup(req: IncomingMessage, res: ServerResponse, parts: string[], method: string): Promise<void> {
+  if (method === 'GET' && parts.length === 2) {
+    sendJson(res, 200, setupView());
+    return;
+  }
+  // 即時檢查路徑：引導頁與設定頁邊打字邊顯示紅字
+  if (method === 'POST' && parts[2] === 'check') {
+    const body = await readJson(req);
+    const dir = typeof body.path === 'string' ? body.path.trim() : '';
+    sendJson(res, 200, { risk: dir && path.isAbsolute(dir) ? cloudRisk(dir) : null });
+    return;
+  }
+  if (method === 'POST' && parts[2] === 'pick') {
+    const body = await readJson(req);
+    const picked = await pickFolder(
+      typeof body.initial === 'string' ? body.initial : '',
+      typeof body.title === 'string' && body.title.trim() ? body.title.trim() : '選擇資料夾',
+    );
+    sendJson(res, 200, { path: picked, risk: picked ? cloudRisk(picked) : null });
+    return;
+  }
+  if (method === 'POST' && parts.length === 2) {
+    if (isConfigured()) throw new HttpError(409, '已經設定過了。要換位置請到設定頁。');
+    const body = await readJson(req);
+    const meetings = asUserError(() => ensureWritable(typeof body.meetingsDir === 'string' ? body.meetingsDir : '', '會議資料夾'));
+    const settingsAt = asUserError(() => ensureWritable(typeof body.settingsDir === 'string' ? body.settingsDir : '', '設定資料夾'));
+    writeLocation({ meetingsDir: meetings, settingsDir: settingsAt });
+    invalidateSettings();
+    sendJson(res, 200, setupView());
+    return;
+  }
+  throw new HttpError(404, '找不到這個 API');
+}
+
+/** 正在產生會議紀錄的數量：這段期間不能換會議資料夾，否則 LLM 回來後寫不回去。 */
+let summarizing = 0;
+
+async function summarize(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+  const body = await readJson(req);
+  const force = body.force === true;
+  let meeting = await readMeeting(id);
+
+  if (meeting.status === 'recording') throw new HttpError(409, '還在錄音中，請先按「結束會議」。');
+  if (!meeting.segments.some((s) => s.transcript.trim()) && !meeting.notes.length) {
+    throw new HttpError(400, '沒有逐字稿也沒有筆記，沒有東西可以整理。');
+  }
+  if (meeting.minutes && !force) {
+    sendJson(res, 200, { markdown: await readMinutes(id), meeting });
+    return;
+  }
+
+  if (!meeting.endedAt) {
+    meeting.endedAt = new Date().toISOString();
+    meeting.status = 'ended';
+  }
+
+  const referenceContext = await readReferenceContext(id);
+  const { system, user } = buildMinutesPrompt({
+    meeting,
+    referenceContext,
+    provider: settings().llmProvider,
+  });
+  // 截圖依提示詞裡的編號附上；檔案不見（被手動刪掉）就跳過那張，不讓整份紀錄失敗
+  const images: PromptImage[] = [];
+  for (const { n, note } of noteImages(meeting)) {
+    const data = await readImage(id, note.image);
+    if (data) images.push({ caption: imageCaption(n, note), mime: imageMime(note.image), data });
+  }
+  const result = await generateMinutes(system, user, images);
+
+  meeting = await readMeeting(id);
+  meeting.minutes = { generatedAt: new Date().toISOString(), provider: result.provider, model: result.model };
+  meeting.status = 'ended';
+  meeting.endedAt ??= new Date().toISOString();
+  const markdown = normalizeMinutes(result.text, meeting);
+  await writeMinutes(meeting, markdown);
+  await saveMeeting(meeting);
+  sendJson(res, 200, { markdown, meeting });
+}
+
 async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  if (!isLocalRequest(req)) throw new HttpError(403, '只接受從本機開啟的頁面');
   const method = req.method ?? 'GET';
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
+
+  if (parts[1] === 'health') {
+    sendJson(res, 200, { app: 'meeting-assistant' });
+    return;
+  }
+  if (parts[1] === 'setup') {
+    await handleSetup(req, res, parts, method);
+    return;
+  }
+  // 還沒選資料位置前，不讓任何東西寫進預設資料夾
+  if (!isConfigured()) throw new HttpError(409, '還沒完成第一次設定，請重新整理頁面選擇資料存放位置。');
 
   // /api/settings
   if (parts[1] === 'settings') {
@@ -135,7 +351,15 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         if (key) llmKeysPatch = { ...(llmKeysPatch ?? {}), gemini: key };
       }
       if (typeof body.language === 'string') patch.language = body.language;
-      if (typeof body.meetingsDir === 'string' && body.meetingsDir.trim()) patch.meetingsDir = body.meetingsDir.trim();
+      if (typeof body.meetingsDir === 'string' && body.meetingsDir.trim()) {
+        const wanted = body.meetingsDir.trim();
+        if (!samePath(path.resolve(settingsDir(), wanted), meetingsPath())) {
+          // 錄音中換位置，進行中的會議會寫到新資料夾、找不到自己的舊檔
+          if (sessions.size) throw new HttpError(409, '還有會議在錄音或暫停中，請先結束會議再換會議資料夾。');
+          if (summarizing) throw new HttpError(409, '正在產生會議紀錄，請等它完成再換會議資料夾。');
+          writeLocation({ meetingsDir: asUserError(() => ensureWritable(wanted, '會議資料夾')) });
+        }
+      }
       if (typeof body.autoSegmentSeconds === 'number') patch.autoSegmentSeconds = body.autoSegmentSeconds;
       if (typeof body.keepAudio === 'boolean') patch.keepAudio = body.keepAudio;
       if (typeof body.llmProvider === 'string') patch.llmProvider = body.llmProvider as never;
@@ -156,6 +380,33 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       writeSettings(patch);
       invalidateSettings();
       sendJson(res, 200, settingsView());
+      return;
+    }
+    // 換設定資料夾：settings.json 與 .env 一起搬過去，不用重填 key
+    if (method === 'POST' && parts[2] === 'move') {
+      // 測試模式的設定資料夾固定在 MEETING_ASSISTANT_DATA_DIR，搬了也讀不到
+      if (isTestMode()) throw new HttpError(409, '測試模式（MEETING_ASSISTANT_DATA_DIR）不能搬設定資料夾');
+      const body = await readJson(req);
+      const target = asUserError(() => ensureWritable(typeof body.settingsDir === 'string' ? body.settingsDir : '', '設定資料夾'));
+      const from = settingsDir();
+      // 順序：複製並比對 → location.json 改指新位置 → 最後才刪舊檔。中途任何一步失敗，key 都還在原處讀得到
+      const moved = asUserError(() => copySettingsFiles(from, target));
+      try {
+        writeLocation({ settingsDir: target });
+      } catch (err) {
+        // 位置沒改成功：新位置的副本清掉（含 key），舊位置照常使用，使用者可以直接重試
+        const stuck = removeSettingsFiles(target, moved);
+        const why = err instanceof Error ? err.message : String(err);
+        throw new HttpError(
+          500,
+          stuck.length
+            ? `沒有搬成（${why}）。新位置 ${target} 留下了 ${stuck.join('、')}（含 key）刪不掉，請自己刪掉後再試；目前仍使用原本的設定資料夾。`
+            : `沒有搬成（${why}）。目前仍使用原本的設定資料夾，可以直接再試一次。`,
+        );
+      }
+      invalidateSettings();
+      const leftBehind = removeSettingsFiles(from, moved);
+      sendJson(res, 200, { settings: settingsView(), moved, leftBehind });
       return;
     }
     if (method === 'POST' && parts[2] === 'ping') {
@@ -372,46 +623,12 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       return;
     }
     if (method === 'POST' && parts[3] === 'summarize') {
-      const body = await readJson(req);
-      const force = body.force === true;
-      let meeting = await readMeeting(id);
-
-      if (meeting.status === 'recording') throw new HttpError(409, '還在錄音中，請先按「結束會議」。');
-      if (!meeting.segments.some((s) => s.transcript.trim()) && !meeting.notes.length) {
-        throw new HttpError(400, '沒有逐字稿也沒有筆記，沒有東西可以整理。');
+      summarizing += 1;
+      try {
+        await summarize(req, res, id);
+      } finally {
+        summarizing -= 1;
       }
-      if (meeting.minutes && !force) {
-        sendJson(res, 200, { markdown: await readMinutes(id), meeting });
-        return;
-      }
-
-      if (!meeting.endedAt) {
-        meeting.endedAt = new Date().toISOString();
-        meeting.status = 'ended';
-      }
-
-      const referenceContext = await readReferenceContext(id);
-      const { system, user } = buildMinutesPrompt({
-        meeting,
-        referenceContext,
-        provider: settings().llmProvider,
-      });
-      // 截圖依提示詞裡的編號附上；檔案不見（被手動刪掉）就跳過那張，不讓整份紀錄失敗
-      const images: PromptImage[] = [];
-      for (const { n, note } of noteImages(meeting)) {
-        const data = await readImage(id, note.image);
-        if (data) images.push({ caption: imageCaption(n, note), mime: imageMime(note.image), data });
-      }
-      const result = await generateMinutes(system, user, images);
-
-      meeting = await readMeeting(id);
-      meeting.minutes = { generatedAt: new Date().toISOString(), provider: result.provider, model: result.model };
-      meeting.status = 'ended';
-      meeting.endedAt ??= new Date().toISOString();
-      const markdown = normalizeMinutes(result.text, meeting);
-      await writeMinutes(meeting, markdown);
-      await saveMeeting(meeting);
-      sendJson(res, 200, { markdown, meeting });
       return;
     }
   }
@@ -430,7 +647,31 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 };
 
+/** exe 版：前端檔案打包在 exe 裡（key 是 dist/ 底下的相對路徑），找不到就回 index.html。 */
+function serveEmbedded(res: ServerResponse, pathname: string): void {
+  const rel = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.replace(/^\/+/, ''));
+  let key = `dist/${rel}`;
+  let data: ArrayBuffer;
+  try {
+    data = getAsset(key);
+  } catch {
+    key = 'dist/index.html';
+    data = getAsset(key);
+  }
+  const body = Buffer.from(data);
+  res.writeHead(200, {
+    'content-type': MIME[path.extname(key).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': body.length,
+    'cache-control': 'no-cache',
+  });
+  res.end(body);
+}
+
 async function serveStatic(res: ServerResponse, pathname: string): Promise<void> {
+  if (isSea()) {
+    serveEmbedded(res, pathname);
+    return;
+  }
   if (!existsSync(DIST)) {
     res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('前端還沒 build。開發時請用 npm run dev（Vite 在 5173），或先跑 npm run build。');
@@ -467,6 +708,10 @@ const wss = new WebSocketServer({ noServer: true });
 const sessions = new Map<string, LiveSession>();
 
 server.on('upgrade', (req, socket, head) => {
+  if (!isLocalRequest(req)) {
+    socket.destroy();
+    return;
+  }
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
   const match = url.pathname.match(/^\/ws\/live\/([^/]+)$/);
   if (!match?.[1]) {
@@ -586,9 +831,133 @@ async function openLive(id: string, ws: import('ws').WebSocket): Promise<void> {
   });
 }
 
-server.listen(PORT, HOST, () => {
-  const shown = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
-  console.log(`[meeting-assistant] API  http://${shown}:${PORT}`);
-  console.log(`[meeting-assistant] 會議資料夾  ${path.resolve(projectRoot, settings().meetingsDir)}`);
-  if (!existsSync(DIST)) console.log('[meeting-assistant] 開發模式：前端請開 http://localhost:5173');
+const shownHost = HOST_IN_URL;
+const urlFor = (p: number): string => `http://${shownHost}:${p}`;
+
+function openBrowser(url: string): void {
+  // MEETING_ASSISTANT_NO_BROWSER 給自動測試用，免得每跑一次就開一個分頁
+  if (process.env.MEETING_ASSISTANT_NO_BROWSER) return;
+  const [cmd, args] =
+    process.platform === 'win32'
+      ? ['cmd', ['/c', 'start', '""', url]]
+      : process.platform === 'darwin'
+        ? ['open', [url]]
+        : ['xdg-open', [url]];
+  const child = spawn(cmd, args as string[], { stdio: 'ignore', detached: true, windowsHide: true });
+  // 沒有 xdg-open、或公司政策擋掉 cmd 時，不能讓伺服器跟著掛掉
+  child.on('error', () => console.log(`[meeting-assistant] 沒辦法自動開瀏覽器，請自己打開 ${url}`));
+  child.unref();
+}
+
+/** 這個 port 上跑的是不是會議助手（例如重複雙擊 exe）。 */
+async function isOurs(p: number): Promise<boolean> {
+  try {
+    const res = await fetch(`${urlFor(p)}/api/health`, { signal: AbortSignal.timeout(1500) });
+    return ((await res.json()) as { app?: string }).app === 'meeting-assistant';
+  } catch {
+    return false;
+  }
+}
+
+/** exe 是雙擊開的：出錯時視窗不能一閃就關，讓人看得到原因。 */
+function failAndWait(message: string): void {
+  console.error(`\n[meeting-assistant] ${message}`);
+  if (!runningAsExe) process.exit(1);
+  console.error('\n按 Enter 關閉這個視窗。');
+  process.stdin.resume();
+  process.stdin.once('data', () => process.exit(1));
+}
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code !== 'EADDRINUSE') {
+    failAndWait(`伺服器啟動失敗：${err.message}`);
+    return;
+  }
+  void (async () => {
+    if (await isOurs(port)) {
+      // 固定 port（npm run dev、自己指定 PORT、測試）時不能悄悄退出：Vite 會把 API 轉給那一份，改了程式也看不到效果
+      if (PORT_FIXED) {
+        failAndWait(`port ${port} 已經有另一份會議助手在執行（可能是 exe）。請先關掉它，或設定環境變數 PORT 換一個 port。`);
+        return;
+      }
+      // 已經開著一份會議助手（例如重複雙擊）：直接打開它就好，不開第二份
+      console.log(`[meeting-assistant] 已經在執行中，直接打開 ${urlFor(port)}`);
+      if (runningAsExe) openBrowser(urlFor(port));
+      process.exit(0);
+    }
+    if (PORT_FIXED || port >= BASE_PORT + PORT_TRIES - 1) {
+      failAndWait(
+        PORT_FIXED
+          ? `port ${port} 被其他程式占用。請關掉那個程式，或設定環境變數 PORT 換一個 port 後再開。`
+          : `port ${BASE_PORT}–${port} 都被其他程式占用，請關掉一些程式後再開。`,
+      );
+      return;
+    }
+    // 被別的程式占用：換下一個 port。深淺色偏好是跟著網址記的，設定頁會用小字說明
+    console.log(`[meeting-assistant] port ${port} 被其他程式占用，改用 ${port + 1}`);
+    port += 1;
+    server.listen(port, LISTEN_HOST);
+  })();
 });
+
+server.on('listening', () => {
+  const appUrl = urlFor(port);
+  if (port !== BASE_PORT) {
+    setPortNote(`這次用的是 port ${port}（${BASE_PORT} 被其他程式占用）。深淺色偏好是跟著網址記的，可能跟平常不同，重新選一次即可。`);
+  }
+  console.log(`[meeting-assistant] 網址  ${appUrl}`);
+  // location.json 損壞時這裡會丟錯：只印出怎麼修，伺服器照常跑（API 也會回同一段說明），不能讓 exe 一閃就關
+  try {
+    if (isConfigured()) {
+      console.log(`[meeting-assistant] 會議資料夾  ${meetingsPath()}`);
+      console.log(`[meeting-assistant] 設定資料夾  ${settingsDir()}`);
+    } else {
+      console.log('[meeting-assistant] 第一次使用：請在瀏覽器選擇資料存放位置');
+    }
+    const legacy = legacyDataHints();
+    if (legacy.length) {
+      console.log('[meeting-assistant] 專案資料夾裡還有改版前的資料，要沿用請手動搬（搬完重新整理即可）：');
+      for (const line of legacy) console.log(`  - ${line}`);
+    }
+  } catch (err) {
+    console.error(`[meeting-assistant] ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (runningAsExe) {
+    console.log('[meeting-assistant] 關閉這個視窗就會停止會議助手。');
+    openBrowser(appUrl);
+  } else if (!existsSync(DIST)) {
+    console.log('[meeting-assistant] 開發模式：前端請開 http://localhost:5173');
+  }
+});
+
+async function start(): Promise<void> {
+  if (!HOST_NAME) {
+    failAndWait(
+      HOST.includes('%')
+        ? `環境變數 HOST=${HOST} 帶了 zone ID（%…），瀏覽器網址不支援，請改用 IPv4 或不帶 % 的位址。`
+        : `環境變數 HOST=${HOST} 不是合法的 IP 位址或電腦名稱（可能含空白或特殊字元），請修正或刪掉它。`,
+    );
+    return;
+  }
+  // 查「文件」「桌面」位置要叫外部程式，最慢可能十幾秒：趁還沒開始服務時查好並快取，
+  // 不要等到第一個請求才在處理途中卡住整個伺服器
+  warmKnownFolders();
+  if (!PORT_VALID) {
+    failAndWait(`環境變數 PORT=${PORT_RAW} 不是 1–65535 的整數，請修正或刪掉它。`);
+    return;
+  }
+  if (!PORT_FIXED) {
+    // 會自動換 port 時，已經開著的那份可能不在 8787（例如當時 8787 被別的程式占用、後來又空出來）。
+    // 先把可能的 port 都問一遍，免得開出第二份、兩邊同時寫同一個資料夾
+    const range = Array.from({ length: PORT_TRIES }, (_, i) => BASE_PORT + i).filter((p) => p <= 65535);
+    const found = (await Promise.all(range.map(async (p) => ((await isOurs(p)) ? p : 0)))).find((p) => p > 0);
+    if (found) {
+      console.log(`[meeting-assistant] 已經在執行中，直接打開 ${urlFor(found)}`);
+      if (runningAsExe) openBrowser(urlFor(found));
+      process.exit(0);
+    }
+  }
+  server.listen(port, LISTEN_HOST);
+}
+
+void start();

@@ -13,13 +13,27 @@
 
 ## 需要什麼
 
-- Windows / macOS 都可，Node.js **22.18 以上**（會直接執行 `.ts`，開發時用 Node 26 測過）
+- **只想使用**：Windows 10／11，下載 `meeting-assistant.exe` 就好，**不用裝 Node**
+- **要改程式**：Windows / macOS 都可，Node.js **22.18 以上**（會直接執行 `.ts`，開發時用 Node 26 測過）
+- 瀏覽器：Chrome 或 Edge（錄線上會議的分頁音訊要用它們）
 - 一組轉錄用的 key：
   - **Gemini**：到 [Google AI Studio](https://aistudio.google.com/apikey) 建立，有免費額度，不用先綁信用卡
   - **Typeless**：到 [Typeless Console](https://platform.typeless.com) 建立（`tls_sk_...`），預付制
 - 一組摘要用的 LLM key：Claude、OpenAI 或 Gemini 任一（選 Gemini 可與轉錄共用）
 
 ## 安裝與啟動
+
+### 方式一：執行檔（不用裝 Node）
+
+1. 拿到 `meeting-assistant.exe`（約 100 MB，裡面已經包了 Node 與網頁），放在任何資料夾。
+2. 點兩下。會開一個黑色視窗，瀏覽器自動打開 <http://127.0.0.1:8787>。
+3. **黑色視窗要開著**，關掉就停止會議助手。重複點兩下只會再打開瀏覽器，不會開第二份。
+   8787 被其他程式占用時會自動改用 8788、8789…，黑色視窗會顯示實際網址；這時深淺色偏好可能要重選一次。
+
+第一次執行時，Windows 可能跳出「Windows 已保護您的電腦」：按「**其他資訊**」→「**仍要執行**」。
+這是因為執行檔沒有付費的程式碼簽章，不是病毒警告。
+
+### 方式二：從原始碼
 
 ```powershell
 cd "路徑\meeting-assistant"
@@ -31,6 +45,33 @@ npm start
 打開 <http://127.0.0.1:8787>。
 
 開發時用 `npm run dev`，前端會有熱更新（<http://localhost:5173>，API 仍在 8787）。
+
+兩種方式的資料放在同一個地方（見下一節），換著用看到的是同一份會議與設定。
+
+## 第一次啟動：選資料存放位置
+
+第一次打開會先出現「**選擇資料存放位置**」，分兩個資料夾：
+
+| 資料夾 | 存什麼 | 預設 |
+| --- | --- | --- |
+| 會議資料 | 錄音、逐字稿、筆記、截圖、會議紀錄 | `文件\Meeting Assistant` |
+| 設定（含完整 API key） | `settings.json`、`.env` | `%APPDATA%\meeting-assistant` |
+
+- 按「**瀏覽…**」會開 Windows 的選資料夾視窗，可以在裡面新增資料夾。
+- 設定資料夾選在「文件」、「桌面」或 OneDrive 底下時會出現**紅字**：公司電腦常把這些資料夾同步到
+  OneDrive，API key 會跟著上傳到雲端。沒有特別理由就用預設的位置。
+- 兩個位置記在 `%APPDATA%\meeting-assistant\location.json`（只有路徑，沒有 key）。
+  想重新跳出引導頁，關掉會議助手後刪掉這個檔再開。
+- 之後可以在「設定」頁的「資料」區更換：
+  - **會議資料夾**：換了以後舊會議**不會搬**，首頁只列新資料夾裡的會議。要沿用舊會議，用檔案總管把
+    每場會議的資料夾拖到新位置（每場會議是一個獨立的資料夾），重新整理就會出現。錄音中不能換。
+  - **設定資料夾**：按「搬到這裡」會把 `settings.json` 與 `.env` 一起搬過去，不用重填 key。
+    新位置已經有同名檔時不會覆蓋，會請你換一個資料夾。
+
+> **從舊版升級（原本用 `npm run dev` 的人）**：以前資料放在專案資料夾裡，改版後**不會自動搬**。
+> 啟動時終端機會列出還留在專案裡的舊檔，照著搬：
+> `server\.data\settings.json` 與專案根目錄的 `.env` → 設定資料夾；`meetings\` 底下每場會議的資料夾 → 會議資料夾。
+> 搬完重新整理頁面即可，不用重啟。
 
 ## 第一次設定
 
@@ -46,19 +87,21 @@ npm start
    - 建議 `claude-opus-5-5`（要省錢選 `claude-sonnet-5-5`）或 `gpt-5`
    - 選 Gemini 時可以留白，直接沿用上面轉錄的 Gemini key
 
-填好後，首頁右上角就不會再顯示「未設定」的提醒。
+填好後，側邊欄「設定」旁的「需要設定」就會消失。
 
-> **key 存在哪**：設定頁貼上後，key 只會送到本機伺服器，存在 `server/.data/settings.json`
-> （已加入 `.gitignore`）；瀏覽器之後只拿得到 `••••1234` 這種遮罩提示，拿不到完整 key。
+> **key 存在哪**：設定頁貼上後，key 只會送到本機伺服器，存在設定資料夾的 `settings.json`
+> （位置見上一節，設定頁也會顯示）；瀏覽器之後只拿得到 `••••1234` 這種遮罩提示，拿不到完整 key。
 >
-> **也可以放 `.env`**（專案根目錄，已 gitignore）：`GEMINI_API_KEY`、`TYPELESS_API_KEY`、
+> **也可以放 `.env`**（放在設定資料夾；執行檔版也可以放在 exe 旁邊，兩份都有時設定資料夾那份優先）：`GEMINI_API_KEY`、`TYPELESS_API_KEY`、
 > `ANTHROPIC_API_KEY`、`OPENAI_API_KEY`。只想用 `.env` 的話再加 `TRANSCRIBER=gemini`
-> 與 `GEMINI_TRANSCRIBE_MODEL=gemini-2.5-flash`，改完要重啟 `npm run dev`。
+> 與 `GEMINI_TRANSCRIBE_MODEL=gemini-2.5-flash`，改完不用重啟，下一次呼叫就會吃到。
 > 兩邊都填時**設定頁優先**；設定頁目前沒有「清除」按鈕，想改用 `.env` 請用文字編輯器
-> 打開 `server/.data/settings.json`，刪掉 `geminiApiKey` 與 `llmKeys.gemini` 後重啟。
+> 打開設定資料夾的 `settings.json`，刪掉 `geminiApiKey` 與 `llmKeys.gemini` 後存檔。
 >
-> 伺服器預設只綁 `127.0.0.1`，同一個 Wi-Fi 的其他裝置連不到；要開放再設 `HOST=0.0.0.0`
+> 伺服器預設只綁 `127.0.0.1`，同一個 Wi-Fi 的其他裝置連不到；要開放再設系統環境變數 `HOST=0.0.0.0`
 > （這個 app 沒有登入機制，開放等於同網段的人都能看你的會議、用你的額度）。
+> 開放時其他裝置要用 **IP** 連（例如 `http://192.168.1.5:8787`），不能用電腦名稱：
+> 為了擋惡意網站借網域名稱連進來（DNS rebinding），只接受本機名稱與 IP 位址。
 
 ## 開會流程
 
@@ -125,7 +168,7 @@ node scripts/transcribe-file.ts "C:\Users\me\Downloads\會議.m4a" --meeting 202
   （用 `--chunk-min 10` 可以調更短）。整場一次丟給 Gemini 會撞到輸出上限。
 - 100 MB 以上的檔案走 Gemini **Files API**（上傳免費，檔案在 Google 保留 48 小時）。
   同一個檔案重跑第二次會自動沿用已上傳的版本，不會再傳一次。
-- 逐字稿寫回 `meetings/<id>/transcript.md`，會議狀態設為「已結束」，逐字稿依時間段落分節。
+- 逐字稿寫回會議資料夾的 `<id>/transcript.md`，會議狀態設為「已結束」，逐字稿依時間段落分節。
 - 會議已經有逐字稿時要加 `--replace` 才會覆蓋。
 - 跑到一半失敗不會白費：已完成段落留在 `transcript.partial.md`。
 
@@ -133,7 +176,7 @@ node scripts/transcribe-file.ts "C:\Users\me\Downloads\會議.m4a" --meeting 202
 
 ```powershell
 winget install Gyan.FFmpeg                     # 裝完重開終端機
-# 或下載 portable 版解壓到 tools\ffmpeg\bin\ffmpeg.exe
+# 或下載 portable 版解壓到 tools\ffmpeg\bin\ffmpeg.exe（執行檔版：exe 旁邊的 tools\ffmpeg\bin\）
 # https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
 # 或在 .env 指定 FFMPEG_PATH=C:\path\to\ffmpeg.exe
 ```
@@ -194,7 +237,7 @@ input 每段約 2.9 萬 tokens、輸出 3,000–5,000 字，整場約 5 分鐘�
 
 ## 產出在哪裡
 
-會議紀錄存在專案底下的 `meetings/日期-時間-主題/`：
+會議紀錄存在會議資料夾（預設 `文件\Meeting Assistant`）底下的 `日期-時間-主題/`：
 
 ```
 meetings/2026-11-18-1000-產品週會/
@@ -291,12 +334,26 @@ key 的來源會顯示在結果後面，例如「key 來源：`.env` 的 `GEMINI
 ```powershell
 npm test              # 單元測試（prefix 解析、markdown、格式化、WAV 檔頭）
 npm run typecheck     # tsc --noEmit
-npm run smoke         # 假 Typeless + 假 Gemini + 假 LLM，兩條轉錄路徑都跑，不需要任何 key
+npm run smoke         # 假 Typeless + 假 Gemini + 假 LLM，兩條轉錄路徑都跑，再走一次第一次啟動流程；不需要任何 key
 npm run build         # 型別檢查 + vite build
 npm run e2e           # headless Edge + 假麥克風，真的走一次瀏覽器流程（需先 build）
 npm run typography    # 中文孤行檢測，桌機 1440px 與手機 390px
 npm run preview       # 拍首頁／紀錄頁／設定頁截圖到 preview/（需先 build + npm start）
+npm run package       # 打包成 release/meeting-assistant.exe（需要 Node 25.5 以上）
+npm run smoke:exe     # 對打包好的 exe 跑一次 smoke
 ```
+
+### 打包執行檔
+
+`npm run package` 用 Node 內建的 SEA（single executable application）：
+
+1. `npm run build` 建置前端到 `dist/`
+2. 用 rolldown 把 `server/` 打成一個 CommonJS 檔
+3. 把 `dist/` 的檔案當成 SEA asset 塞進 exe（伺服器用 `node:sea` 的 `getAsset` 讀）
+4. `node --build-sea` 產生 `release/meeting-assistant.exe`
+
+**用哪個 Node 打包，exe 裡就是哪個 Node**，所以要在 Node 25.5 以上執行。目前只出 Windows 版；
+程式碼本身跨平台，要出 Mac 版得在 Mac 上打包。交出去之前跑一次 `npm run smoke:exe`。
 
 專案結構：
 
@@ -305,7 +362,7 @@ server/     API、Typeless 串流 relay、Gemini 轉錄、檔案存取、摘要 
 src/core/   前後端共用：型別、筆記解析、markdown 渲染、格式化
 src/ui/     極簡前端：首頁、錄音頁、紀錄頁、設定頁
 public/     pcm-worklet.js（音訊 → 16k PCM16）
-scripts/    dev / smoke / e2e / typography / preview
+scripts/    dev / smoke / e2e / typography / preview / package（打包 exe）
 ```
 
 ## 已知限制

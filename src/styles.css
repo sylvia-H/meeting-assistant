@@ -1119,7 +1119,8 @@ body.resizing {
 .composer,
 .dock .legend {
   max-width: 680px;
-  margin: 0 auto;
+  margin-right: auto;
+  margin-left: auto;
 }
 
 .composer {
@@ -1154,8 +1155,8 @@ body.resizing {
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-top: 8px;
+  gap: 6px 14px;
+  margin-top: 10px;
   color: var(--mute);
   font-size: 12px;
 }
@@ -1986,6 +1987,12 @@ body.resizing {
   font-size: 14px;
 }
 
+.port-note {
+  margin: 0 0 4px;
+  color: var(--mute);
+  font-size: 12.5px;
+}
+
 .group-title {
   margin: 26px 4px 8px;
   color: var(--ink-2);
@@ -2320,4 +2327,89 @@ body:has(.dock) .toasts {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
   }
+}
+
+/* ── 資料夾欄位（引導頁、設定頁共用） ───────────────────── */
+.folder-field {
+  display: flex;
+  gap: 8px;
+  width: min(100%, 440px);
+}
+
+.folder-field > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-field > .btn {
+  flex: none;
+}
+
+.cloud-risk {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: left;
+}
+
+.settings-dir-group {
+  margin-top: 10px;
+}
+
+/* ── 第一次啟動的引導頁 ─────────────────────────────────── */
+.setup {
+  /* #app 是「側邊欄＋內容」兩欄的 grid；引導頁沒有側邊欄，要橫跨兩欄 */
+  grid-column: 1 / -1;
+  display: grid;
+  min-height: 100vh;
+  overflow-y: auto;
+  place-items: center;
+  padding: 32px 20px;
+  background: var(--bg);
+}
+
+.setup-card {
+  width: min(100%, 620px);
+}
+
+.setup-card h1 {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.setup-item {
+  margin-top: 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--fill-2);
+}
+
+[data-theme='dark'] .setup-item {
+  background: var(--raise);
+}
+
+.setup-label {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.setup-hint {
+  margin: 4px 0 12px;
+  color: var(--mute);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.setup-item .folder-field {
+  width: 100%;
+}
+
+.setup-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
 }

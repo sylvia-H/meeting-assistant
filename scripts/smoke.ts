@@ -125,8 +125,17 @@ const gemini = createServer((req, res) => {
 });
 await new Promise<void>((resolve) => gemini.listen(GEMINI_PORT, '127.0.0.1', resolve));
 
-// ── 啟動 app server（import 即監聽） ───────────────────────
-await import('../server/index.ts');
+// ── 啟動 app server（import 即監聽）；加 --exe 改測打包好的 release/ 執行檔 ──
+if (process.argv.includes('--exe')) {
+  const { spawn } = await import('node:child_process');
+  const exe = path.resolve(import.meta.dirname, '..', 'release', process.platform === 'win32' ? 'meeting-assistant.exe' : 'meeting-assistant');
+  if (!existsSync(exe)) throw new Error(`找不到 ${exe}，請先 npm run package`);
+  const child = spawn(exe, [], { env: { ...process.env, MEETING_ASSISTANT_NO_BROWSER: '1' }, stdio: 'inherit' });
+  process.on('exit', () => child.kill());
+  console.log(`  · 測試執行檔 ${exe}`);
+} else {
+  await import('../server/index.ts');
+}
 
 const base = `http://127.0.0.1:${PORT}`;
 for (let i = 0; i < 50; i += 1) {
