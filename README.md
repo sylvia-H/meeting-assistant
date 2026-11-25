@@ -2,6 +2,8 @@
 
 本機執行的會議紀錄工具：**一邊開會一邊錄音轉逐字稿、一邊打字做筆記，會後用 LLM 產出 markdown 會議紀錄。**
 
+🎬 [**下載 2 分鐘介紹影片**](https://github.com/sylvia-H/meeting-assistant/releases/latest/download/meeting-assistant-promo.mp4)（mp4，約 7 MB，女聲旁白；畫面為示範資料）
+
 - 轉錄可選 **Gemini（有免費額度）** 或 **Typeless（付費、中文品質好）**
 - 錄音檔、逐字稿、筆記、會議紀錄都存在自己的硬碟；音訊會送到你選的轉錄服務（Google 或 Typeless）
 - API key 只存在本機伺服器，不會送到瀏覽器
@@ -25,7 +27,7 @@
 
 ### 方式一：執行檔（不用裝 Node）
 
-1. 拿到 `meeting-assistant.exe`（約 100 MB，裡面已經包了 Node 與網頁），放在任何資料夾。
+1. [下載 `meeting-assistant.exe`](https://github.com/sylvia-H/meeting-assistant/releases/latest/download/meeting-assistant.exe)（約 100 MB，裡面已經包了 Node 與網頁），放在任何資料夾。
 2. 點兩下。會開一個黑色視窗，瀏覽器自動打開 <http://127.0.0.1:8787>。
 3. **黑色視窗要開著**，關掉就停止會議助手。重複點兩下只會再打開瀏覽器，不會開第二份。
    8787 被其他程式占用時會自動改用 8788、8789…，黑色視窗會顯示實際網址；這時深淺色偏好可能要重選一次。
