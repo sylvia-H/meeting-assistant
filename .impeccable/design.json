@@ -1,0 +1,1606 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-25T01:49:07.921Z",
+  "title": "Design System: 會議助手",
+  "extensions": {
+    "colorMeta": {
+      "bg": {
+        "role": "neutral",
+        "displayName": "紙白（淺色）",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "cssVar": "--bg",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242424",
+          "#404040",
+          "#5d5d5d",
+          "#808080",
+          "#a4a4a4",
+          "#cacaca",
+          "#eeeeee"
+        ]
+      },
+      "side": {
+        "role": "neutral",
+        "displayName": "側欄灰（淺色）",
+        "canonical": "#f5f5f7",
+        "oklch": "oklch(97.1% 0.003 286.4)",
+        "cssVar": "--side",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242425",
+          "#3f3f41",
+          "#5d5d5f",
+          "#808082",
+          "#a4a4a6",
+          "#cacacc",
+          "#eeeef0"
+        ]
+      },
+      "raise": {
+        "role": "neutral",
+        "displayName": "浮層（淺色）",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "cssVar": "--raise",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242424",
+          "#404040",
+          "#5d5d5d",
+          "#808080",
+          "#a4a4a4",
+          "#cacaca",
+          "#eeeeee"
+        ]
+      },
+      "fill": {
+        "role": "neutral",
+        "displayName": "填色（淺色）",
+        "canonical": "#ececf0",
+        "oklch": "oklch(94.4% 0.005 286.3)",
+        "cssVar": "--fill",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242427",
+          "#3f3f42",
+          "#5d5d61",
+          "#808083",
+          "#a4a4a8",
+          "#cacace",
+          "#eeeef2"
+        ]
+      },
+      "fill-2": {
+        "role": "neutral",
+        "displayName": "淺填色（淺色）",
+        "canonical": "#f4f4f7",
+        "oklch": "oklch(96.8% 0.004 286.3)",
+        "cssVar": "--fill-2",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808082",
+          "#a4a4a7",
+          "#cacacd",
+          "#eeeef1"
+        ]
+      },
+      "hover": {
+        "role": "neutral",
+        "displayName": "滑過灰（淺色）",
+        "canonical": "#e9e9ee",
+        "oklch": "oklch(93.5% 0.007 286.3)",
+        "cssVar": "--hover",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#242427",
+          "#3f3f43",
+          "#5d5d61",
+          "#808084",
+          "#a4a4a9",
+          "#cacacf",
+          "#eeeef3"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "墨色（淺色）",
+        "canonical": "#1d1d1f",
+        "oklch": "oklch(23.2% 0.004 286.1)",
+        "cssVar": "--ink",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808082",
+          "#a4a4a7",
+          "#cacacd",
+          "#eeeef1"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "次墨（淺色）",
+        "canonical": "#3f3f44",
+        "oklch": "oklch(37.0% 0.008 286.0)",
+        "cssVar": "--ink-2",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#232328",
+          "#3f3f44",
+          "#5d5d62",
+          "#7f8085",
+          "#a4a4aa",
+          "#cacad0",
+          "#eeeef4"
+        ]
+      },
+      "mute": {
+        "role": "neutral",
+        "displayName": "靜音灰（淺色）",
+        "canonical": "#616166",
+        "oklch": "oklch(49.4% 0.008 286.1)",
+        "cssVar": "--mute",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#242328",
+          "#3f3f44",
+          "#5d5d62",
+          "#808085",
+          "#a4a4a9",
+          "#cacacf",
+          "#eeeef4"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "細線（淺色）",
+        "canonical": "#e2e2e7",
+        "oklch": "oklch(91.4% 0.007 286.3)",
+        "cssVar": "--line",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#242427",
+          "#3f3f43",
+          "#5d5d61",
+          "#808084",
+          "#a4a4a9",
+          "#cacacf",
+          "#eeeef3"
+        ]
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "強細線（淺色）",
+        "canonical": "#cfcfd6",
+        "oklch": "oklch(85.7% 0.010 286.2)",
+        "cssVar": "--line-strong",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#232329",
+          "#3f3f45",
+          "#5d5d63",
+          "#7f7f86",
+          "#a4a4aa",
+          "#cacad1",
+          "#eeeef5"
+        ]
+      },
+      "sel": {
+        "role": "primary",
+        "displayName": "選取暖黃（淺色）",
+        "canonical": "#fbe7ad",
+        "oklch": "oklch(93.0% 0.077 91.3)",
+        "cssVar": "--sel",
+        "theme": "light",
+        "tonalRamp": [
+          "#100a00",
+          "#2e2300",
+          "#4e3e01",
+          "#6e5c24",
+          "#917f48",
+          "#b6a36c",
+          "#ddc990",
+          "#ffeebd"
+        ]
+      },
+      "sel-ink": {
+        "role": "primary",
+        "displayName": "選取字色（淺色）",
+        "canonical": "#1d1d1f",
+        "oklch": "oklch(23.2% 0.004 286.1)",
+        "cssVar": "--sel-ink",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808082",
+          "#a4a4a7",
+          "#cacacd",
+          "#eeeef1"
+        ]
+      },
+      "acc": {
+        "role": "primary",
+        "displayName": "琥珀行動黃（淺色）",
+        "canonical": "#e8a600",
+        "oklch": "oklch(76.8% 0.159 79.9)",
+        "cssVar": "--acc",
+        "theme": "light",
+        "tonalRamp": [
+          "#120900",
+          "#312101",
+          "#543a02",
+          "#7b5601",
+          "#a67605",
+          "#d59800",
+          "#febe41",
+          "#ffeccd"
+        ]
+      },
+      "acc-hover": {
+        "role": "primary",
+        "displayName": "行動黃 hover（淺色）",
+        "canonical": "#d69a00",
+        "oklch": "oklch(72.5% 0.150 80.6)",
+        "cssVar": "--acc-hover",
+        "theme": "light",
+        "tonalRamp": [
+          "#120900",
+          "#312100",
+          "#543b01",
+          "#7a5603",
+          "#a67701",
+          "#d49906",
+          "#fdbf45",
+          "#ffeccd"
+        ]
+      },
+      "acc-ink": {
+        "role": "primary",
+        "displayName": "行動黃字色（淺色）",
+        "canonical": "#1d1d1f",
+        "oklch": "oklch(23.2% 0.004 286.1)",
+        "cssVar": "--acc-ink",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808082",
+          "#a4a4a7",
+          "#cacacd",
+          "#eeeef1"
+        ]
+      },
+      "ring": {
+        "role": "primary",
+        "displayName": "焦點琥珀（淺色）",
+        "canonical": "#b97f00",
+        "oklch": "oklch(63.9% 0.134 76.7)",
+        "cssVar": "--ring",
+        "theme": "light",
+        "tonalRamp": [
+          "#130900",
+          "#322000",
+          "#563902",
+          "#7d5502",
+          "#a97507",
+          "#d39831",
+          "#fcbe5d",
+          "#ffebd0"
+        ]
+      },
+      "rec": {
+        "role": "secondary",
+        "displayName": "錄音紅（淺色）",
+        "canonical": "#d8342b",
+        "oklch": "oklch(58.0% 0.202 28.4)",
+        "cssVar": "--rec",
+        "theme": "light",
+        "tonalRamp": [
+          "#1f0000",
+          "#4b0001",
+          "#7c0204",
+          "#b20208",
+          "#df3c31",
+          "#ff7364",
+          "#ffb5aa",
+          "#fee9e6"
+        ]
+      },
+      "ok": {
+        "role": "tertiary",
+        "displayName": "成功綠（淺色）",
+        "canonical": "#1f6b43",
+        "oklch": "oklch(47.1% 0.098 156.0)",
+        "cssVar": "--ok",
+        "theme": "light",
+        "tonalRamp": [
+          "#000f05",
+          "#012d17",
+          "#024d2b",
+          "#226e46",
+          "#499267",
+          "#6fb78b",
+          "#94deb0",
+          "#c4ffd9"
+        ]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "危險紅（淺色）",
+        "canonical": "#c0352b",
+        "oklch": "oklch(53.9% 0.177 28.6)",
+        "cssVar": "--danger",
+        "theme": "light",
+        "tonalRamp": [
+          "#1f0000",
+          "#4b0101",
+          "#7d0002",
+          "#ab1d18",
+          "#d54a3d",
+          "#ff7363",
+          "#ffb5aa",
+          "#fee9e6"
+        ]
+      },
+      "danger-bg": {
+        "role": "tertiary",
+        "displayName": "危險淡底（淺色）",
+        "canonical": "#fdecea",
+        "oklch": "oklch(95.6% 0.019 25.6)",
+        "cssVar": "--danger-bg",
+        "theme": "light",
+        "tonalRamp": [
+          "#120807",
+          "#2d211f",
+          "#493c3b",
+          "#685a58",
+          "#8b7c7a",
+          "#b0a09f",
+          "#d7c6c4",
+          "#fbeae8"
+        ]
+      },
+      "warn": {
+        "role": "tertiary",
+        "displayName": "提醒棕（淺色）",
+        "canonical": "#6f4a00",
+        "oklch": "oklch(43.9% 0.092 76.1)",
+        "cssVar": "--warn",
+        "theme": "light",
+        "tonalRamp": [
+          "#130900",
+          "#332000",
+          "#563902",
+          "#7b5513",
+          "#a0783c",
+          "#c69d60",
+          "#edc385",
+          "#ffecd1"
+        ]
+      },
+      "warn-bg": {
+        "role": "tertiary",
+        "displayName": "提醒淡底（淺色）",
+        "canonical": "#fdf3dc",
+        "oklch": "oklch(96.6% 0.032 87.3)",
+        "cssVar": "--warn-bg",
+        "theme": "light",
+        "tonalRamp": [
+          "#110a00",
+          "#2b2311",
+          "#473f2c",
+          "#655d49",
+          "#887f6b",
+          "#ada48e",
+          "#d3cab3",
+          "#f8eed7"
+        ]
+      },
+      "thumb": {
+        "role": "neutral",
+        "displayName": "捲軸滑塊（淺色）",
+        "canonical": "#c9c9cf",
+        "oklch": "oklch(83.8% 0.008 286.2)",
+        "cssVar": "--thumb",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#242328",
+          "#3f3f44",
+          "#5d5d62",
+          "#808085",
+          "#a4a4aa",
+          "#cacad0",
+          "#eeeef4"
+        ]
+      },
+      "thumb-hover": {
+        "role": "neutral",
+        "displayName": "捲軸滑塊 hover（淺色）",
+        "canonical": "#a5a5ad",
+        "oklch": "oklch(72.4% 0.011 286.1)",
+        "cssVar": "--thumb-hover",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0a10",
+          "#232329",
+          "#3f3f46",
+          "#5d5d64",
+          "#7f7f87",
+          "#a4a4ac",
+          "#cacad2",
+          "#ededf6"
+        ]
+      },
+      "k-decision": {
+        "role": "tertiary",
+        "displayName": "決議綠（淺色）",
+        "canonical": "#1d6440",
+        "oklch": "oklch(44.9% 0.092 157.0)",
+        "cssVar": "--k-decision",
+        "theme": "light",
+        "tonalRamp": [
+          "#000f06",
+          "#002d17",
+          "#014d2c",
+          "#286d48",
+          "#4d916a",
+          "#72b68e",
+          "#98ddb3",
+          "#c4ffda"
+        ]
+      },
+      "k-decision-bg": {
+        "role": "tertiary",
+        "displayName": "決議淡底（淺色）",
+        "canonical": "#e2f3e8",
+        "oklch": "oklch(94.9% 0.023 157.6)",
+        "cssVar": "--k-decision-bg",
+        "theme": "light",
+        "tonalRamp": [
+          "#040e07",
+          "#1b2820",
+          "#36443b",
+          "#536259",
+          "#75857b",
+          "#99a99f",
+          "#bfcfc5",
+          "#e2f3e8"
+        ]
+      },
+      "k-todo": {
+        "role": "tertiary",
+        "displayName": "待辦藍（淺色）",
+        "canonical": "#2a4d9c",
+        "oklch": "oklch(44.0% 0.135 263.8)",
+        "cssVar": "--k-todo",
+        "theme": "light",
+        "tonalRamp": [
+          "#000036",
+          "#011864",
+          "#183986",
+          "#3559a9",
+          "#567dd0",
+          "#78a2f9",
+          "#b1cbfe",
+          "#e7efff"
+        ]
+      },
+      "k-todo-bg": {
+        "role": "tertiary",
+        "displayName": "待辦淡底（淺色）",
+        "canonical": "#e6edfb",
+        "oklch": "oklch(94.5% 0.020 264.5)",
+        "cssVar": "--k-todo-bg",
+        "theme": "light",
+        "tonalRamp": [
+          "#070b14",
+          "#1f242e",
+          "#3a404b",
+          "#585e69",
+          "#7a808d",
+          "#9ea5b2",
+          "#c4cbd8",
+          "#e8effd"
+        ]
+      },
+      "k-question": {
+        "role": "tertiary",
+        "displayName": "待確認黃（淺色）",
+        "canonical": "#6f4a00",
+        "oklch": "oklch(43.9% 0.092 76.1)",
+        "cssVar": "--k-question",
+        "theme": "light",
+        "tonalRamp": [
+          "#130900",
+          "#332000",
+          "#563902",
+          "#7b5513",
+          "#a0783c",
+          "#c69d60",
+          "#edc385",
+          "#ffecd1"
+        ]
+      },
+      "k-question-bg": {
+        "role": "tertiary",
+        "displayName": "待確認淡底（淺色）",
+        "canonical": "#fbefd5",
+        "oklch": "oklch(95.5% 0.036 86.2)",
+        "cssVar": "--k-question-bg",
+        "theme": "light",
+        "tonalRamp": [
+          "#110a00",
+          "#2c230e",
+          "#483f29",
+          "#675c46",
+          "#8a7f68",
+          "#afa38b",
+          "#d5c9b0",
+          "#f9edd3"
+        ]
+      },
+      "k-idea": {
+        "role": "tertiary",
+        "displayName": "想法紫（淺色）",
+        "canonical": "#563b92",
+        "oklch": "oklch(42.9% 0.137 294.2)",
+        "cssVar": "--k-idea",
+        "theme": "light",
+        "tonalRamp": [
+          "#0f002a",
+          "#2c045e",
+          "#462a7f",
+          "#644aa2",
+          "#866dc9",
+          "#aa92f2",
+          "#cdc0ff",
+          "#efecfe"
+        ]
+      },
+      "k-idea-bg": {
+        "role": "tertiary",
+        "displayName": "想法淡底（淺色）",
+        "canonical": "#efe8fa",
+        "oklch": "oklch(94.2% 0.025 303.5)",
+        "cssVar": "--k-idea-bg",
+        "theme": "light",
+        "tonalRamp": [
+          "#0d0814",
+          "#26212e",
+          "#423d4b",
+          "#605a6a",
+          "#837d8d",
+          "#a8a1b2",
+          "#cec7d8",
+          "#f2ebfd"
+        ]
+      },
+      "k-note": {
+        "role": "tertiary",
+        "displayName": "筆記灰（淺色）",
+        "canonical": "#45454a",
+        "oklch": "oklch(39.2% 0.008 286.0)",
+        "cssVar": "--k-note",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#232328",
+          "#3f3f44",
+          "#5d5d62",
+          "#7f8085",
+          "#a4a4aa",
+          "#cacad0",
+          "#eeeef4"
+        ]
+      },
+      "k-note-bg": {
+        "role": "tertiary",
+        "displayName": "筆記淡底（淺色）",
+        "canonical": "#ededf0",
+        "oklch": "oklch(94.7% 0.004 286.3)",
+        "cssVar": "--k-note-bg",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808082",
+          "#a4a4a7",
+          "#cacacd",
+          "#eeeef1"
+        ]
+      },
+      "k-section": {
+        "role": "tertiary",
+        "displayName": "環節灰（淺色）",
+        "canonical": "#3f3f44",
+        "oklch": "oklch(37.0% 0.008 286.0)",
+        "cssVar": "--k-section",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#232328",
+          "#3f3f44",
+          "#5d5d62",
+          "#7f8085",
+          "#a4a4aa",
+          "#cacad0",
+          "#eeeef4"
+        ]
+      },
+      "k-section-bg": {
+        "role": "tertiary",
+        "displayName": "環節淡底（淺色）",
+        "canonical": "#e9e9ee",
+        "oklch": "oklch(93.5% 0.007 286.3)",
+        "cssVar": "--k-section-bg",
+        "theme": "light",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#242427",
+          "#3f3f43",
+          "#5d5d61",
+          "#808084",
+          "#a4a4a9",
+          "#cacacf",
+          "#eeeef3"
+        ]
+      },
+      "bg-dark": {
+        "role": "neutral",
+        "displayName": "紙白（深色）",
+        "canonical": "#1c1c1e",
+        "oklch": "oklch(22.7% 0.004 286.1)",
+        "cssVar": "--bg",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808082",
+          "#a4a4a7",
+          "#cacacd",
+          "#eeeef1"
+        ]
+      },
+      "side-dark": {
+        "role": "neutral",
+        "displayName": "側欄灰（深色）",
+        "canonical": "#232325",
+        "oklch": "oklch(25.7% 0.004 286.1)",
+        "cssVar": "--side",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808082",
+          "#a4a4a7",
+          "#cacacd",
+          "#eeeef1"
+        ]
+      },
+      "raise-dark": {
+        "role": "neutral",
+        "displayName": "浮層（深色）",
+        "canonical": "#2c2c2f",
+        "oklch": "oklch(29.4% 0.005 286.1)",
+        "cssVar": "--raise",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242427",
+          "#3f3f42",
+          "#5d5d61",
+          "#808083",
+          "#a4a4a8",
+          "#cacace",
+          "#eeeef2"
+        ]
+      },
+      "fill-dark": {
+        "role": "neutral",
+        "displayName": "填色（深色）",
+        "canonical": "#333336",
+        "oklch": "oklch(32.2% 0.005 286.1)",
+        "cssVar": "--fill",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808083",
+          "#a4a4a8",
+          "#cacace",
+          "#eeeef2"
+        ]
+      },
+      "fill-2-dark": {
+        "role": "neutral",
+        "displayName": "淺填色（深色）",
+        "canonical": "#28282b",
+        "oklch": "oklch(27.8% 0.005 286.0)",
+        "cssVar": "--fill-2",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242427",
+          "#3f3f43",
+          "#5d5d61",
+          "#808083",
+          "#a4a4a8",
+          "#cacace",
+          "#eeeef2"
+        ]
+      },
+      "hover-dark": {
+        "role": "neutral",
+        "displayName": "滑過灰（深色）",
+        "canonical": "#303034",
+        "oklch": "oklch(31.1% 0.007 286.0)",
+        "cssVar": "--hover",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#242427",
+          "#3f3f43",
+          "#5d5d62",
+          "#808084",
+          "#a4a4a9",
+          "#cacacf",
+          "#eeeef3"
+        ]
+      },
+      "ink-dark": {
+        "role": "neutral",
+        "displayName": "墨色（深色）",
+        "canonical": "#f2f2f4",
+        "oklch": "oklch(96.2% 0.003 286.3)",
+        "cssVar": "--ink",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242425",
+          "#3f3f41",
+          "#5d5d5f",
+          "#808082",
+          "#a4a4a6",
+          "#cacacc",
+          "#eeeef0"
+        ]
+      },
+      "ink-2-dark": {
+        "role": "neutral",
+        "displayName": "次墨（深色）",
+        "canonical": "#d2d2d7",
+        "oklch": "oklch(86.5% 0.007 286.3)",
+        "cssVar": "--ink-2",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#242427",
+          "#3f3f43",
+          "#5d5d61",
+          "#808084",
+          "#a4a4a9",
+          "#cacacf",
+          "#eeeef3"
+        ]
+      },
+      "mute-dark": {
+        "role": "neutral",
+        "displayName": "靜音灰（深色）",
+        "canonical": "#a2a2a8",
+        "oklch": "oklch(71.4% 0.009 286.2)",
+        "cssVar": "--mute",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#232328",
+          "#3f3f44",
+          "#5d5d62",
+          "#7f7f85",
+          "#a4a4aa",
+          "#cacad0",
+          "#eeeef4"
+        ]
+      },
+      "line-dark": {
+        "role": "neutral",
+        "displayName": "細線（深色）",
+        "canonical": "#38383c",
+        "oklch": "oklch(34.2% 0.007 286.0)",
+        "cssVar": "--line",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#242427",
+          "#3f3f43",
+          "#5d5d61",
+          "#808084",
+          "#a4a4a9",
+          "#cacacf",
+          "#eeeef3"
+        ]
+      },
+      "line-strong-dark": {
+        "role": "neutral",
+        "displayName": "強細線（深色）",
+        "canonical": "#4a4a50",
+        "oklch": "oklch(41.1% 0.010 286.0)",
+        "cssVar": "--line-strong",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#232329",
+          "#3f3f45",
+          "#5d5d63",
+          "#7f7f86",
+          "#a4a4ab",
+          "#cacad1",
+          "#eeeef5"
+        ]
+      },
+      "sel-dark": {
+        "role": "primary",
+        "displayName": "選取暖黃（深色）",
+        "canonical": "#4a3d14",
+        "oklch": "oklch(36.5% 0.060 91.4)",
+        "cssVar": "--sel",
+        "theme": "dark",
+        "tonalRamp": [
+          "#100a00",
+          "#2d2301",
+          "#4b3e16",
+          "#6a5d34",
+          "#8d7f56",
+          "#b2a479",
+          "#d9ca9e",
+          "#fdeec1"
+        ]
+      },
+      "sel-ink-dark": {
+        "role": "primary",
+        "displayName": "選取字色（深色）",
+        "canonical": "#f7f2e2",
+        "oklch": "oklch(96.1% 0.022 92.5)",
+        "cssVar": "--sel-ink",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0e0b03",
+          "#282418",
+          "#444033",
+          "#625d50",
+          "#858072",
+          "#a9a596",
+          "#cfcabb",
+          "#f3eede"
+        ]
+      },
+      "acc-dark": {
+        "role": "primary",
+        "displayName": "琥珀行動黃（深色）",
+        "canonical": "#f0b429",
+        "oklch": "oklch(80.4% 0.156 82.5)",
+        "cssVar": "--acc",
+        "theme": "dark",
+        "tonalRamp": [
+          "#120a00",
+          "#312100",
+          "#533b01",
+          "#785703",
+          "#a47807",
+          "#d29a03",
+          "#fcc03a",
+          "#ffeccb"
+        ]
+      },
+      "acc-hover-dark": {
+        "role": "primary",
+        "displayName": "行動黃 hover（深色）",
+        "canonical": "#f5c34f",
+        "oklch": "oklch(84.1% 0.142 85.2)",
+        "cssVar": "--acc-hover",
+        "theme": "dark",
+        "tonalRamp": [
+          "#110a00",
+          "#2f2201",
+          "#513c03",
+          "#775800",
+          "#a17903",
+          "#cd9c19",
+          "#f5c34f",
+          "#ffedc7"
+        ]
+      },
+      "acc-ink-dark": {
+        "role": "primary",
+        "displayName": "行動黃字色（深色）",
+        "canonical": "#1d1d1f",
+        "oklch": "oklch(23.2% 0.004 286.1)",
+        "cssVar": "--acc-ink",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808082",
+          "#a4a4a7",
+          "#cacacd",
+          "#eeeef1"
+        ]
+      },
+      "ring-dark": {
+        "role": "primary",
+        "displayName": "焦點琥珀（深色）",
+        "canonical": "#f0b429",
+        "oklch": "oklch(80.4% 0.156 82.5)",
+        "cssVar": "--ring",
+        "theme": "dark",
+        "tonalRamp": [
+          "#120a00",
+          "#312100",
+          "#533b01",
+          "#785703",
+          "#a47807",
+          "#d29a03",
+          "#fcc03a",
+          "#ffeccb"
+        ]
+      },
+      "rec-dark": {
+        "role": "secondary",
+        "displayName": "錄音紅（深色）",
+        "canonical": "#ff5a50",
+        "oklch": "oklch(68.7% 0.202 27.2)",
+        "cssVar": "--rec",
+        "theme": "dark",
+        "tonalRamp": [
+          "#1f0000",
+          "#4b0003",
+          "#7c0108",
+          "#b10311",
+          "#df3b35",
+          "#ff7266",
+          "#feb5ac",
+          "#ffe9e6"
+        ]
+      },
+      "ok-dark": {
+        "role": "tertiary",
+        "displayName": "成功綠（深色）",
+        "canonical": "#8fdcac",
+        "oklch": "oklch(83.1% 0.102 156.1)",
+        "cssVar": "--ok",
+        "theme": "dark",
+        "tonalRamp": [
+          "#000f05",
+          "#012d17",
+          "#024d2b",
+          "#1e6e44",
+          "#469266",
+          "#6cb88a",
+          "#92dfaf",
+          "#c4ffd9"
+        ]
+      },
+      "danger-dark": {
+        "role": "tertiary",
+        "displayName": "危險紅（深色）",
+        "canonical": "#ff8178",
+        "oklch": "oklch(74.4% 0.155 25.7)",
+        "cssVar": "--danger",
+        "theme": "dark",
+        "tonalRamp": [
+          "#1f0001",
+          "#4b0005",
+          "#7c020e",
+          "#a32d2c",
+          "#cc544e",
+          "#f67971",
+          "#feb5ad",
+          "#fee9e7"
+        ]
+      },
+      "danger-bg-dark": {
+        "role": "tertiary",
+        "displayName": "危險淡底（深色）",
+        "canonical": "#3e2220",
+        "oklch": "oklch(28.8% 0.044 24.5)",
+        "cssVar": "--danger-bg",
+        "theme": "dark",
+        "tonalRamp": [
+          "#1a0403",
+          "#361b19",
+          "#553734",
+          "#745451",
+          "#997773",
+          "#bf9b97",
+          "#e6c0bd",
+          "#fee9e7"
+        ]
+      },
+      "warn-dark": {
+        "role": "tertiary",
+        "displayName": "提醒棕（深色）",
+        "canonical": "#f1c873",
+        "oklch": "oklch(85.1% 0.114 84.2)",
+        "cssVar": "--warn",
+        "theme": "dark",
+        "tonalRamp": [
+          "#110a00",
+          "#302101",
+          "#523c00",
+          "#775802",
+          "#a07a1c",
+          "#c69e48",
+          "#edc46f",
+          "#feedc9"
+        ]
+      },
+      "warn-bg-dark": {
+        "role": "tertiary",
+        "displayName": "提醒淡底（深色）",
+        "canonical": "#3d3015",
+        "oklch": "oklch(31.7% 0.046 84.0)",
+        "cssVar": "--warn-bg",
+        "theme": "dark",
+        "tonalRamp": [
+          "#110a00",
+          "#2e2206",
+          "#4b3e23",
+          "#6a5c40",
+          "#8d7e61",
+          "#b2a385",
+          "#d9c9a9",
+          "#fdedcd"
+        ]
+      },
+      "thumb-dark": {
+        "role": "neutral",
+        "displayName": "捲軸滑塊（深色）",
+        "canonical": "#4a4a4f",
+        "oklch": "oklch(41.1% 0.008 286.0)",
+        "cssVar": "--thumb",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#232328",
+          "#3f3f44",
+          "#5d5d62",
+          "#808085",
+          "#a4a4aa",
+          "#cacad0",
+          "#eeeef4"
+        ]
+      },
+      "thumb-hover-dark": {
+        "role": "neutral",
+        "displayName": "捲軸滑塊 hover（深色）",
+        "canonical": "#616167",
+        "oklch": "oklch(49.5% 0.009 286.0)",
+        "cssVar": "--thumb-hover",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#232328",
+          "#3f3f45",
+          "#5d5d63",
+          "#7f7f86",
+          "#a4a4aa",
+          "#cacad1",
+          "#eeeef5"
+        ]
+      },
+      "k-decision-dark": {
+        "role": "tertiary",
+        "displayName": "決議綠（深色）",
+        "canonical": "#95e0b1",
+        "oklch": "oklch(84.5% 0.100 156.1)",
+        "cssVar": "--k-decision",
+        "theme": "dark",
+        "tonalRamp": [
+          "#000f05",
+          "#012c17",
+          "#004d2b",
+          "#216e45",
+          "#489267",
+          "#6eb78a",
+          "#93deaf",
+          "#c5ffd9"
+        ]
+      },
+      "k-decision-bg-dark": {
+        "role": "tertiary",
+        "displayName": "決議淡底（深色）",
+        "canonical": "#1d3a2a",
+        "oklch": "oklch(32.0% 0.046 158.3)",
+        "cssVar": "--k-decision-bg",
+        "theme": "dark",
+        "tonalRamp": [
+          "#000f06",
+          "#0d2b1b",
+          "#2a4737",
+          "#476654",
+          "#6a8976",
+          "#8dae9a",
+          "#b3d4bf",
+          "#d6f8e3"
+        ]
+      },
+      "k-todo-dark": {
+        "role": "tertiary",
+        "displayName": "待辦藍（深色）",
+        "canonical": "#a4bff7",
+        "oklch": "oklch(80.5% 0.085 264.6)",
+        "cssVar": "--k-todo",
+        "theme": "dark",
+        "tonalRamp": [
+          "#00042e",
+          "#0f204d",
+          "#293e6c",
+          "#455c8e",
+          "#677fb4",
+          "#8aa4db",
+          "#b2cbfe",
+          "#e7efff"
+        ]
+      },
+      "k-todo-bg-dark": {
+        "role": "tertiary",
+        "displayName": "待辦淡底（深色）",
+        "canonical": "#1f2c48",
+        "oklch": "oklch(29.6% 0.054 264.4)",
+        "cssVar": "--k-todo-bg",
+        "theme": "dark",
+        "tonalRamp": [
+          "#020922",
+          "#17233e",
+          "#313f5d",
+          "#4e5d7d",
+          "#7080a1",
+          "#94a5c7",
+          "#b9cbef",
+          "#e7effe"
+        ]
+      },
+      "k-question-dark": {
+        "role": "tertiary",
+        "displayName": "待確認黃（深色）",
+        "canonical": "#f1c873",
+        "oklch": "oklch(85.1% 0.114 84.2)",
+        "cssVar": "--k-question",
+        "theme": "dark",
+        "tonalRamp": [
+          "#110a00",
+          "#302101",
+          "#523c00",
+          "#775802",
+          "#a07a1c",
+          "#c69e48",
+          "#edc46f",
+          "#feedc9"
+        ]
+      },
+      "k-question-bg-dark": {
+        "role": "tertiary",
+        "displayName": "待確認淡底（深色）",
+        "canonical": "#3d3015",
+        "oklch": "oklch(31.7% 0.046 84.0)",
+        "cssVar": "--k-question-bg",
+        "theme": "dark",
+        "tonalRamp": [
+          "#110a00",
+          "#2e2206",
+          "#4b3e23",
+          "#6a5c40",
+          "#8d7e61",
+          "#b2a385",
+          "#d9c9a9",
+          "#fdedcd"
+        ]
+      },
+      "k-idea-dark": {
+        "role": "tertiary",
+        "displayName": "想法紫（深色）",
+        "canonical": "#ccb8f4",
+        "oklch": "oklch(82.0% 0.086 299.8)",
+        "cssVar": "--k-idea",
+        "theme": "dark",
+        "tonalRamp": [
+          "#120027",
+          "#2b1746",
+          "#473466",
+          "#655287",
+          "#8874ac",
+          "#ac99d3",
+          "#d3befb",
+          "#f1ebff"
+        ]
+      },
+      "k-idea-bg-dark": {
+        "role": "tertiary",
+        "displayName": "想法淡底（深色）",
+        "canonical": "#30264a",
+        "oklch": "oklch(29.8% 0.064 295.0)",
+        "cssVar": "--k-idea-bg",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0e0323",
+          "#271c3f",
+          "#42385e",
+          "#60567e",
+          "#8379a3",
+          "#a79dc9",
+          "#cdc3f1",
+          "#efebff"
+        ]
+      },
+      "k-note-dark": {
+        "role": "tertiary",
+        "displayName": "筆記灰（深色）",
+        "canonical": "#cfcfd4",
+        "oklch": "oklch(85.6% 0.007 286.3)",
+        "cssVar": "--k-note",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#242427",
+          "#3f3f43",
+          "#5d5d61",
+          "#808084",
+          "#a4a4a9",
+          "#cacacf",
+          "#eeeef3"
+        ]
+      },
+      "k-note-bg-dark": {
+        "role": "tertiary",
+        "displayName": "筆記淡底（深色）",
+        "canonical": "#333336",
+        "oklch": "oklch(32.2% 0.005 286.1)",
+        "cssVar": "--k-note-bg",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808083",
+          "#a4a4a8",
+          "#cacace",
+          "#eeeef2"
+        ]
+      },
+      "k-section-dark": {
+        "role": "tertiary",
+        "displayName": "環節灰（深色）",
+        "canonical": "#dcdce1",
+        "oklch": "oklch(89.6% 0.007 286.3)",
+        "cssVar": "--k-section",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#242427",
+          "#3f3f43",
+          "#5d5d61",
+          "#808084",
+          "#a4a4a9",
+          "#cacacf",
+          "#eeeef3"
+        ]
+      },
+      "k-section-bg-dark": {
+        "role": "tertiary",
+        "displayName": "環節淡底（深色）",
+        "canonical": "#36363a",
+        "oklch": "oklch(33.4% 0.007 286.0)",
+        "cssVar": "--k-section-bg",
+        "theme": "dark",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#242427",
+          "#3f3f43",
+          "#5d5d61",
+          "#808084",
+          "#a4a4a9",
+          "#cacacf",
+          "#eeeef3"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "會議標題、設定頁標題、逐字稿版面大標（28px／700）。"
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "會議紀錄 Markdown h2（18px／700）；h1 22px、h3 15.5px／600。"
+      },
+      "note": {
+        "displayName": "Note",
+        "purpose": "中央筆記內文；會議紀錄本文 16px／1.85。"
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "全站基準字級與頁尾輸入框。"
+      },
+      "transcript": {
+        "displayName": "Transcript",
+        "purpose": "逐字稿段落；逐字稿版面放大為 17px／1.85。"
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "按鈕、下拉選單。"
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "環節小標、群組標題、欄位標籤、段落標頭。"
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "時間戳、說明、提示、legend（12–12.5px）。"
+      },
+      "pill": {
+        "displayName": "Pill",
+        "purpose": "筆記類型膠囊與狀態膠囊。"
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "code、kbd、指令提示。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-float",
+        "value": "0 8px 24px rgba(20, 20, 30, 0.12), 0 1px 3px rgba(20, 20, 30, 0.08)",
+        "purpose": "淺色主題的 --shadow：選單、提示框、抽屜。"
+      },
+      {
+        "name": "shadow-float-dark",
+        "value": "0 10px 30px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4)",
+        "purpose": "深色主題的 --shadow。"
+      },
+      {
+        "name": "shadow-seg-on",
+        "value": "0 1px 2px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04)",
+        "purpose": "分段控制選中格。"
+      },
+      {
+        "name": "shadow-switch-knob",
+        "value": "0 1px 3px rgba(0, 0, 0, 0.3)",
+        "purpose": "開關圓鈕。"
+      },
+      {
+        "name": "focus-ring",
+        "value": "outline: 2px solid var(--ring); outline-offset: 2px",
+        "purpose": "全站 :focus-visible；輸入框 offset 0、邊框轉透明。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "120ms ease-out",
+        "purpose": "按鈕、拖放區的背景與邊框過渡。"
+      },
+      {
+        "name": "state",
+        "value": "140ms ease-out",
+        "purpose": "開關滑動、提示框進場。"
+      },
+      {
+        "name": "drawer",
+        "value": "160ms ease-out",
+        "purpose": "窄畫面側欄抽屜滑入。"
+      },
+      {
+        "name": "reduced-motion",
+        "value": "0ms",
+        "purpose": "prefers-reduced-motion: reduce 時所有 transition 與 animation 歸零。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "container-view-narrow",
+        "value": "@container view (max-width: 760px)",
+        "purpose": "半個螢幕寬：素材欄移到下方、非主要按鈕只留圖示、設定列單欄。"
+      },
+      {
+        "name": "drawer",
+        "value": "@media (max-width: 880px)",
+        "purpose": "側欄變抽屜。"
+      }
+    ],
+    "theme": {
+      "storageKey": "meeting-assistant.theme",
+      "default": "system",
+      "attribute": "data-theme",
+      "values": [
+        "light",
+        "dark"
+      ],
+      "note": "index.html 行內腳本在第一次繪製前套用；src/ui/theme.ts 處理切換與跟隨系統。frontmatter 中 -dark 後綴的色票是同名變數在 [data-theme=dark] 的值。"
+    },
+    "scrollbar": {
+      "width": "thin / 10px",
+      "thumb": "var(--thumb)",
+      "thumbHover": "var(--thumb-hover)",
+      "track": "transparent",
+      "radius": "999px"
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "每個畫面唯一的主要動作（建立並開始錄音、結束會議、儲存、複製 Markdown）。",
+      "html": "<button class=\"ds-btn ds-btn-primary\">結束會議</button>",
+      "css": ".ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;padding:5px 12px;border:1px solid var(--line);border-radius:8px;background:var(--fill-2);color:var(--ink);font-size:13.5px;line-height:1.3;white-space:nowrap;cursor:pointer;transition:background-color 120ms ease-out,border-color 120ms ease-out;} .ds-btn:hover{background:var(--hover);} .ds-btn:focus-visible{outline:2px solid var(--ring);outline-offset:2px;} .ds-btn-primary{border-color:transparent;background:var(--acc);color:var(--acc-ink);font-weight:600;} .ds-btn-primary:hover{background:var(--acc-hover);}"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "一般動作：暫停、切段、繼續收音、複製等。",
+      "html": "<button class=\"ds-btn\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20 11a8 8 0 0 0-14.5-4.6L4 8\"/><path d=\"M4 4v4h4\"/></svg><span>繼續收音</span></button>",
+      "css": ".ds-icon{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;} .ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;padding:5px 12px;border:1px solid var(--line);border-radius:8px;background:var(--fill-2);color:var(--ink);font-size:13.5px;line-height:1.3;white-space:nowrap;cursor:pointer;transition:background-color 120ms ease-out,border-color 120ms ease-out;} .ds-btn:hover{background:var(--hover);} .ds-btn:focus-visible{outline:2px solid var(--ring);outline-offset:2px;}"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "custom",
+      "refersTo": "segmented-control",
+      "description": "「並排｜筆記｜逐字稿」版面切換與主題切換，仿系統分段控制。",
+      "html": "<div class=\"ds-seg\" role=\"group\"><button class=\"on\">並排</button><button>筆記</button><button>逐字稿</button></div>",
+      "css": ".ds-seg{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:var(--fill);} .ds-seg button{padding:3px 11px;border:0;border-radius:7px;background:transparent;color:var(--ink-2);font-size:13px;line-height:1.6;cursor:pointer;} .ds-seg button:hover:not(.on){color:var(--ink);} .ds-seg button.on{background:var(--raise);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.14),0 0 0 .5px rgba(0,0,0,.04);} .ds-seg button:focus-visible{outline:2px solid var(--ring);outline-offset:2px;}"
+    },
+    {
+      "name": "Note-kind Tags",
+      "kind": "chip",
+      "refersTo": "tag-decision",
+      "description": "筆記類型膠囊：決議、待辦、待確認、想法、筆記。",
+      "html": "<span class=\"ds-tag ds-k-decision\">決議</span> <span class=\"ds-tag ds-k-todo\">待辦</span> <span class=\"ds-tag ds-k-question\">待確認</span> <span class=\"ds-tag ds-k-idea\">想法</span> <span class=\"ds-tag ds-k-note\">筆記</span>",
+      "css": ".ds-tag{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:12px;font-weight:600;line-height:1;white-space:nowrap;} .ds-k-decision{background:var(--k-decision-bg);color:var(--k-decision);} .ds-k-todo{background:var(--k-todo-bg);color:var(--k-todo);} .ds-k-question{background:var(--k-question-bg);color:var(--k-question);} .ds-k-idea{background:var(--k-idea-bg);color:var(--k-idea);} .ds-k-note{background:var(--k-note-bg);color:var(--k-note);}"
+    },
+    {
+      "name": "Sidebar Meeting List",
+      "kind": "nav",
+      "refersTo": "sidebar-row-selected",
+      "description": "左側會議清單：分組小標、選中列用選取暖黃，錄音中標示錄音紅。",
+      "html": "<nav class=\"ds-side\"><div class=\"ds-side-group\">今天</div><a class=\"ds-side-meeting on\" href=\"#\"><b>Q4 產品路線圖週會</b><span>17:08　已暫停</span></a><a class=\"ds-side-meeting\" href=\"#\"><b>客戶 A 需求訪談</b><span class=\"ds-live\">錄音中</span></a></nav>",
+      "css": ".ds-side{width:240px;padding:12px 10px;background:var(--side);border-right:1px solid var(--line);} .ds-side-group{padding:14px 8px 4px;color:var(--mute);font-size:12px;font-weight:600;} .ds-side-meeting{display:block;padding:7px 10px;border-radius:8px;color:var(--ink);text-decoration:none;} .ds-side-meeting:hover{background:var(--hover);} .ds-side-meeting b{display:block;font-size:14px;font-weight:600;line-height:1.45;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .ds-side-meeting span{color:var(--mute);font-size:12px;} .ds-side-meeting.on{background:var(--sel);color:var(--sel-ink);} .ds-side-meeting.on span{color:inherit;opacity:.8;} .ds-side-meeting span.ds-live{color:var(--rec);font-weight:600;} .ds-live::before{content:\"\";display:inline-block;width:6px;height:6px;margin-right:4px;border-radius:50%;background:var(--rec);vertical-align:1px;} .ds-side-meeting:focus-visible{outline:2px solid var(--ring);outline-offset:2px;}"
+    },
+    {
+      "name": "Composer",
+      "kind": "input",
+      "refersTo": "composer",
+      "description": "錄音頁頁尾常駐的筆記輸入列，左側是目前類型膠囊。",
+      "html": "<div class=\"ds-composer\"><span class=\"ds-tag\">筆記</span><input placeholder=\"寫下重點，Enter 送出\" /><button class=\"ds-btn\">送出</button></div>",
+      "css": ".ds-tag{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:12px;font-weight:600;line-height:1;white-space:nowrap;} .ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;padding:5px 12px;border:1px solid var(--line);border-radius:8px;background:var(--fill-2);color:var(--ink);font-size:13.5px;line-height:1.3;white-space:nowrap;cursor:pointer;transition:background-color 120ms ease-out,border-color 120ms ease-out;} .ds-btn:hover{background:var(--hover);} .ds-btn:focus-visible{outline:2px solid var(--ring);outline-offset:2px;} .ds-composer{display:flex;align-items:center;gap:10px;max-width:680px;padding:6px 6px 6px 10px;border:1px solid var(--line-strong);border-radius:12px;background:var(--fill-2);} .ds-composer:focus-within{border-color:var(--ring);box-shadow:0 0 0 1px var(--ring);} .ds-composer input{flex:1;min-width:0;min-height:34px;padding:0;border:0;background:transparent;color:var(--ink);font:inherit;font-size:15px;outline:none;} .ds-composer input::placeholder{color:var(--mute);} .ds-composer .ds-tag{background:var(--k-note-bg);color:var(--k-note);}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "設定頁與表單的文字欄位、下拉選單。",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"API key\" />",
+      "css": ".ds-input{min-height:34px;padding:6px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg);color:var(--ink);font-size:14px;} .ds-input::placeholder{color:var(--mute);} .ds-input:focus-visible{outline:2px solid var(--ring);outline-offset:0;border-color:transparent;}"
+    },
+    {
+      "name": "Settings Group",
+      "kind": "card",
+      "refersTo": "settings-group",
+      "description": "設定頁的群組：左標籤右控制項，列間 1px 細線。",
+      "html": "<div class=\"ds-group\"><div class=\"ds-r\"><div><div class=\"ds-r-label\">轉錄引擎</div><small>切段後送出音訊</small></div><div class=\"ds-r-ctl\">Gemini</div></div><div class=\"ds-r\"><div><div class=\"ds-r-label\">每段長度</div></div><div class=\"ds-r-ctl\">5 分鐘</div></div></div>",
+      "css": ".ds-group{border:1px solid var(--line);border-radius:12px;background:var(--fill-2);} .ds-r{display:grid;grid-template-columns:minmax(150px,36%) minmax(0,1fr);align-items:center;gap:8px 16px;min-height:54px;padding:11px 16px;} .ds-r+.ds-r{border-top:1px solid var(--line);} .ds-r-label{font-size:14px;font-weight:500;color:var(--ink);} .ds-r small{display:block;margin-top:2px;color:var(--mute);font-size:12.5px;} .ds-r-ctl{display:flex;justify-content:flex-end;color:var(--ink-2);font-size:14px;}"
+    },
+    {
+      "name": "Editable Title",
+      "kind": "custom",
+      "refersTo": "typography.headline",
+      "description": "可就地編輯的會議標題：平常是文字，hover 露出細線框，聚焦轉焦點琥珀。",
+      "html": "<div class=\"ds-date\">2026 年 11 月 24 日 17:08</div><h1 class=\"ds-title\" tabindex=\"0\">Q4 產品路線圖週會</h1>",
+      "css": ".ds-date{color:var(--mute);font-size:13px;font-variant-numeric:tabular-nums;} .ds-title{margin:2px 0 0 -8px;padding:2px 8px;border:1px solid transparent;border-radius:8px;font-size:28px;font-weight:700;line-height:1.3;color:var(--ink);cursor:text;} .ds-title:hover{border-color:var(--line);} .ds-title:focus-visible{outline:none;border-color:var(--ring);background:var(--bg);}"
+    },
+    {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "右下角提示框，浮層陰影；錯誤版本用危險淡底。",
+      "html": "<div class=\"ds-toast\">已複製 Markdown</div> <div class=\"ds-toast ds-toast-error\">轉錄失敗：額度用完，明天再試或換引擎</div>",
+      "css": ".ds-toast{display:inline-block;max-width:440px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--raise);color:var(--ink);font-size:14px;line-height:1.6;box-shadow:var(--shadow);animation:ds-toast-in 140ms ease-out;} .ds-toast-error{border-color:color-mix(in srgb,var(--danger) 45%,var(--line));background:var(--danger-bg);} @keyframes ds-toast-in{from{opacity:0;transform:translateY(6px);}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "作業系統內建的筆記本",
+    "overview": "會議助手長得像作業系統自帶的筆記 App，而不是一個 AI 產品：左側灰色側欄是會議清單，中央白紙是人自己的筆記（人的判斷是主角），右側是可以拖曳調寬的逐字稿素材欄。整套介面用系統字體、1px 細線、8–12px 的圓角和兩種主題下各自調好的中性灰，安靜到開會時一瞥就懂，眼睛可以留在會議本身。\n\n色彩只在有意義的地方出現：黃色是「你的下一步」與「你選中的那場會議」，紅色只代表「正在錄」，筆記類型（決議、待辦、待確認、想法、筆記）各有一組淡底深字的膠囊色。其餘一切都是灰階與細線。資訊密度維持在工具等級：13–16px 的內文、32px 高的控制項、工具列 56px，不靠大留白或大字製造氣氛。\n\n已確認拒絕的方向：白底卡片＋藍色主按鈕的 SaaS 儀表板、首頁會議卡片牆。",
+    "keyCharacteristics": [
+      "三欄外殼：灰側欄＋中央 680–720px 版心＋可拖寬窄的側欄（逐字稿／對照素材）。",
+      "淺色白底配 #f5f5f7 側欄；深色 #1c1c1e 配 #232325 側欄，兩種主題共用同一套變數名稱。",
+      "黃色只給一個主要動作與選取中的會議，紅色只給錄音中。",
+      "五色筆記類型膠囊，深淺兩組各自調色。",
+      "系統字體、1px 分隔線、8–12px 圓角、主題化細捲軸、平面無陰影。",
+      "動態只用在狀態切換（120–160ms），錄音中沒有持續動畫；`prefers-reduced-motion` 時全部歸零。"
+    ],
+    "rules": [
+      {
+        "name": "The One Yellow Voice Rule",
+        "body": "每個畫面只有一個黃色按鈕。黃色是「下一步」與「你選中的」，不是裝飾、不是區塊底色、不是連結色；新的小狀態要用黃色，必須同樣是「輪到你處理」的意思。",
+        "section": "colors"
+      },
+      {
+        "name": "The Red Means Live Rule",
+        "body": "紅色（`rec`）只表示此刻正在錄音。錯誤與刪除用 `danger`，不借用錄音紅；暫停中的錄音點改為黃色。",
+        "section": "colors"
+      },
+      {
+        "name": "The Same Names Rule",
+        "body": "每個主題變數都同時在淺色與深色區塊宣告，元件只寫 `var(--name)`，不寫死任一主題的色碼；少數例外（開關圓鈕白色、截圖移除鈕的半透明黑）只出現在兩種主題下都成立的地方。",
+        "section": "colors"
+      },
+      {
+        "name": "The System Voice Rule",
+        "body": "只用系統字體堆疊，不載入任何外部字型；字級變化不超過 13–28px 這個工具級距。",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Time Rule",
+        "body": "計時器、時間戳、段落編號、日期行一律 `font-variant-numeric: tabular-nums`，數字跳動時不晃動版面。",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Paper Rule",
+        "body": "卡片、列表、窗格、設定群組都不帶陰影；只有選單、提示框、抽屜這類暫時浮在上面的東西才用 `--shadow`。",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** 所有顏色都寫 `var(--name)`，新增顏色時同時在淺色與深色兩個區塊宣告同名變數。",
+      "**Do** 每個畫面只放一個黃色主要動作按鈕（`acc`），其餘按鈕用 `fill-2` 預設樣式。",
+      "**Do** 區塊之間用 1px `line` 細線分隔，圓角留在 6–12px 與 999px 全圓膠囊兩種語彙內。",
+      "**Do** 時間、計時、段號、日期使用 `font-variant-numeric: tabular-nums`。",
+      "**Do** 圖示使用 `src/ui/icons.ts` 的 24 格、1.8 線寬、圓角端點、`currentColor` 線條 SVG。",
+      "**Do** 狀態過渡限制在 120–160ms ease-out，並讓 `prefers-reduced-motion: reduce` 把過渡與動畫歸零。",
+      "**Do** 可就地編輯的文字平常看起來就是內文，hover 露出 1px 邊框、聚焦轉 `ring`。",
+      "**Do** 主題預設跟隨系統，手動選擇存在 localStorage `meeting-assistant.theme`，並在第一次繪製前由 index.html 套上 `data-theme`。"
+    ],
+    "donts": [
+      "**Don't** 做成白底卡片＋藍色主按鈕的 SaaS 儀表板，也不要把會議做成首頁卡片牆。",
+      "**Don't** 用錄音紅（`rec`）表示錄音以外的任何狀態；錯誤與刪除用 `danger`。",
+      "**Don't** 把黃色當裝飾、區塊底色或第二個主要按鈕。",
+      "**Don't** 用 Unicode 符號或 emoji 充當圖示。",
+      "**Don't** 給卡片、列表、設定群組加陰影；陰影只屬於選單、提示框與抽屜。",
+      "**Don't** 載入外部字型或其他外部資源。",
+      "**Don't** 在錄音中加入持續播放的動畫。"
+    ]
+  }
+}

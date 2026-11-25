@@ -6,3 +6,9 @@ meetings/
 preview/
 *.log
 .DS_Store
+
+# Impeccable：比稿草圖、截圖、決策頁暫存是一次性的；surfaces/ 與 DESIGN.md 要進版控
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/questions/
+.impeccable/hook.cache.json

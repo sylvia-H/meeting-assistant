@@ -10,10 +10,10 @@
 | 驗證 | 結果 |
 | --- | --- |
 | `npm run typecheck` | 0 錯誤 |
-| `npm test` | 61 項通過（WAV 檔頭、MIME／時長解析、重複偵測、靜音判定、開場白清除、現場轉錄的重試／換模型／切半、截圖編號與三家多模態格式） |
+| `npm test` | 73 項通過（另含改名／改時間規則、逐字稿校正、與會者解析、會後補充標註）；原 61 項（WAV 檔頭、MIME／時長解析、重複偵測、靜音判定、開場白清除、現場轉錄的重試／換模型／切半、截圖編號與三家多模態格式） |
 | `npm run smoke` | 45 項通過（含截圖上傳／讀回／路徑穿越／格式白名單／刪除；Typeless + Gemini 兩條路徑、假 HTTP server；假音訊改成有起伏的正弦波，全 0 會被靜音判定擋掉）。偶發 EPERM，見已知問題 |
 | `npm run build` | 成功（JS 36.9 kB / CSS 11.0 kB） |
-| `npm run e2e` | 27 項通過（真 headless Edge + 假麥克風，console 零錯誤；含錄音頁校正逐字稿、模擬 Ctrl+V 貼截圖） |
+| `npm run e2e` | 36 項通過（真 headless Edge + 假麥克風，console 零錯誤；含新版面、與會者、模擬 Ctrl+V 貼截圖、會後改逐字稿與筆記） |
 | `npm run typography` | 孤行 0 處（1440px 與 390px） |
 
 ## 可以直接跑的指令
@@ -235,6 +235,30 @@ ANC 還會主動把它濾掉）。所以錄音頁多了一個來源選單：
 - `MOCK_LLM=1` 時假紀錄最後會多一行「收到 N 張截圖：…」，smoke／e2e 靠它確認圖有送到 LLM 這一層。
 - 尚未用真的 LLM 驗證截圖整合的品質；只有在錄音中（有 live session）才能貼，會後的紀錄頁只能看、不能貼。
 
+### 15. 介面改版：Apple 備忘錄版型＋筆記置中，深淺色模式
+
+用 Impeccable 走完：PRODUCT.md（產品背景）→ 兩輪比稿（使用者指定融合 Apple 備忘錄版型＋Granola 筆記置中）→
+設計契約 `.impeccable/surfaces/src-ui-app-ts.md` → 實作 → 五輪截圖 → 獨立審查。
+
+**裁決（2026-11-24）**：抽中的「公文・簽呈」方向被否決，第二輪也未採單一參考，改由使用者指定融合 Apple 備忘錄版型＋Granola 筆記置中（理由未述）。
+
+- **外殼**（`src/ui/app.ts`）：左側欄＝搜尋＋新會議＋依今天／這週／更早分組的會議清單＋底部設定與主題切換；
+  首頁就是「新會議」表單（`home.ts`），清單不在首頁重複。任何頁改到會議清單就呼叫 `meetingsChanged()`（`dom.ts`）。
+  ≤880px 側邊欄變抽屜；工作區用 container query（≤760px）把兩欄改上下疊。
+- **主題**（`theme.ts`＋`index.html` 行內腳本）：`localStorage['meeting-assistant.theme']`，預設跟隨系統；
+  所有顏色是 `src/styles.css` 開頭兩組同名變數。黃色只給主要動作，紅色只給正在錄。
+- **錄音頁**（`live.ts`）：`#live-body[data-view]` 用 grid-template-areas 切三種版面；分隔線拖曳寬度存
+  `meeting-assistant.transcript-width`；「逐字稿」版面把筆記依 `segmentIndex` 插回段落下（`paintInlineNotes`）。
+- **標題／時間／與會者**（`meeting-head.ts`＋`PATCH /api/meetings/:id`＋`applyInfoPatch`）：名稱隨時改，時間只在
+  ready 且 0 段時能改（伺服器同樣擋）；錄音頁開著時改記憶體裡那份（`LiveSession.updateInfo`）。資料夾名稱不跟著改。
+- **與會者**（`src/core/attendees.ts`）：`Meeting.attendees: {name, role}[]`，「王小明（PM）、Amy（廠商 IT）」格式；
+  Gemini 轉錄附上名單（明講不要拿來標說話者），摘要提示詞多「與會者」一節。
+- **會後修改**：逐字稿 `PATCH /api/meetings/:id/segments/:index`、筆記 `POST/PATCH/DELETE /api/meetings/:id/notes[/:noteId]`。
+  錄音頁開著時交給 session（`editTranscript`／`mutate`），否則直接改檔；直接改檔一律經 `withMeetingLock` 排隊，
+  否則「改內容」與「換類型」同時送出會互相蓋掉（e2e 實際撞到過）。會後新增的筆記標 `postMeeting`，提示詞寫「會後補充」。
+  `Segment.editedAt`／`MeetingNote.editedAt` 晚於 `minutes.generatedAt` 時，紀錄頁提醒重新產生。
+- **存檔重試**：`writeFileAtomic` 的 rename 撞到 EPERM／EBUSY／EACCES 等 30→80→200→500ms 重試（待辦 8 已處理）。
+
 ## 待辦（只剩這些）
 
 1. **用真的 Gemini key 跑一場 20–30 分鐘會議**（<https://aistudio.google.com/apikey>）：
@@ -253,7 +277,7 @@ ANC 還會主動把它濾掉）。所以錄音頁多了一個來源選單：
    `MAX_TOKENS` 幾乎可確定是模型鬼打牆重複同一句；現場路徑目前 503 不重試、`MAX_TOKENS` 直接丟掉整段。
    ~~處理方式待裁決~~ 已裁決（2026-11-24）：**維持 180 秒，加重試與防鬼打牆**（不縮短切段：請求數會加倍、
    對 503 幫助很小）。見第 13 節；要用真的會議再驗一次失敗率。
-8. **smoke 偶發 EPERM**（4 次 1 次）：`meeting.json.*.tmp` rename 成 `meeting.json` 時 Windows 回
+8. ~~**smoke 偶發 EPERM**~~ 已處理（第 15 節，rename 重試；改完 smoke 連跑 4 次皆過）。原記錄：（4 次 1 次）：`meeting.json.*.tmp` rename 成 `meeting.json` 時 Windows 回
    EPERM（目標檔正被讀取）。實際使用時可能讓某次存檔失敗；可考慮 rename 撞 EPERM 時短暫重試。
 9. **設定頁的會議資料夾選擇器**：2026-11-24 裁決「先不動」，維持手動輸入。曾提的做法：伺服器叫出系統原生的
    「瀏覽資料夾」視窗（瀏覽器網頁本身拿不到完整路徑）。日後要做時注意：換資料夾後舊會議不會跟著搬，
