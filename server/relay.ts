@@ -149,6 +149,10 @@ export class LiveSession {
       this.pausedAt = null;
     }
     this.meeting.status = 'recording';
+    // 重新打開暫停中的會議會是新的 session：計時器（自動切段靠它）要在這裡啟動，
+    // 狀態也要存檔，否則側邊欄與 meeting.json 會一直停在「已暫停」直到下一次切段
+    this.startTicker();
+    this.queuePersist();
     this.emit();
   }
 

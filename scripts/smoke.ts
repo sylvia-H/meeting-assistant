@@ -244,6 +244,14 @@ log('WebSocket 已連線');
 live.send({ type: 'start' });
 await sleep(200);
 
+// 暫停再繼續：狀態要存回檔案（側邊欄與 meeting.json 才不會停在「已暫停」）
+live.send({ type: 'pause' });
+await sleep(150);
+live.send({ type: 'resume' });
+await sleep(400);
+const resumed = (await (await fetch(`${base}/api/meetings/${id}`)).json()) as { meeting: { status: string } };
+check(resumed.meeting.status === 'recording', `繼續收音後 meeting.json 回到錄音中（實際 ${resumed.meeting.status}）`);
+
 await live.audio(250); // 25 秒，足夠觸發切段的 20 秒門檻
 log('送出 25 秒音訊');
 

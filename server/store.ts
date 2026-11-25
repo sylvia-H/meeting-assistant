@@ -80,7 +80,23 @@ async function writeFileAtomic(file: string, content: string): Promise<void> {
   // 暫存檔名要唯一：end() 與背景的逐字稿存檔可能同時寫同一個檔案
   const tmp = `${file}.${process.pid}.${writeSeq++}.tmp`;
   await writeFile(tmp, content, 'utf8');
-  await rename(tmp, file);
+  // Windows：目標檔正被讀取（瀏覽器抓 meeting.json、防毒掃描、另一個寫入剛好在改名）時
+  // rename 會回 EPERM／EBUSY／EACCES，等一下通常就好；重試用盡才真的失敗
+  const waits = [30, 80, 200, 500];
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(tmp, file);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      const wait = waits[attempt];
+      if (wait === undefined || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) {
+        await rm(tmp, { force: true }).catch(() => undefined);
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  }
 }
 
 export async function saveMeeting(meeting: Meeting): Promise<void> {
