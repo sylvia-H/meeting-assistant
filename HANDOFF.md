@@ -44,6 +44,13 @@
   直接呼叫的 `route()` 會同時跑，`/api/settings` 回得慢時兩份首頁疊在一起、各有捲軸。exe 每次開瀏覽器都不帶 `#`，
   所以必中。改成每次換頁領序號，等完 API 發現已有更新的換頁就丟掉。重現方式：用 CDP 的 Fetch 把 `/api/settings`
   延遲 400ms、開不帶 `#` 的網址，修前每次 2 份，修後 1 份。
+- **合併門（Pro 方案兩輪，2026-11-25）**：第 1 輪 xhigh 找到 15 項（2 high、4 medium、9 low），全修於 `174a93e`；
+  第 2 輪 high 迴圈審修正：`9e69488`（3 medium、6 low）→ `4f62f5c`（3 medium、7 low）→ `52c54db`（3 medium、5 low）→
+  第 4 次審查沒有 critical／high／medium，剩下的 low 修完即結束。主要修正：搬設定檔改成複製→改位置→刪舊檔；
+  所有 API 與 WebSocket 檢查 Host／Origin（擋 DNS rebinding；開放區網時只接受 IP）；「文件」位置改用
+  PowerShell，備援讀 User Shell Folders（reg export，UTF-16LE，不用 chcp），啟動時先查好；location.json 原子寫入、
+  損壞時說明怎麼修。**行為變更**：`HOST` 帶 zone ID 的 IPv6（`fe80::1%12`）以前能啟動但網址是壞的，
+  現在啟動時說明後退出；`MEETINGS_DIR` 不再支援（會議資料夾改在引導頁／設定頁選）。
 - 驗證：`npm test` 82 項、`npm run smoke`（原 smoke＋新的 `smoke-setup.ts` 27 項）、`npm run smoke:exe`
   （同一套 smoke 對 exe 跑，含 WebSocket relay）、`npm run e2e`、引導頁與設定頁截圖（淺色、深色、390px）皆過。
   typography 6 處孤行是既有的（在 main 上同樣 6 處，都在示範會議的筆記文字）。

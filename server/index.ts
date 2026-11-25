@@ -10,6 +10,7 @@ import { formatClock, formatDate, formatDurationZh } from '../src/core/format.ts
 import { invalidateSettings, meetingsPath, projectRoot, setPortNote, settings, settingsView, writeSettings } from './config.ts';
 import {
   cloudRisk,
+  warmKnownFolders,
   defaultLocations,
   ensureWritable,
   isConfigured,
@@ -69,23 +70,48 @@ let port = BASE_PORT;
 // 真的要用平板／手機連進來再設 HOST=0.0.0.0（後果自負：沒有任何登入機制）。
 const HOST = process.env.HOST?.trim() || '127.0.0.1';
 
-/** 「未指定位址」：0.0.0.0、::、::0、0:0:0:0:0:0:0:0 都是綁全部網卡。 */
-const HOST_UNSPECIFIED = HOST === '0.0.0.0' || (isIP(HOST) === 6 && /^[0:]+$/.test(HOST));
-
-/** HOST 放進網址的寫法：未指定位址改用 127.0.0.1；IPv6 加中括號。 */
-const HOST_IN_URL = HOST_UNSPECIFIED ? '127.0.0.1' : isIP(HOST) === 6 ? `[${HOST}]` : HOST;
-
 /**
- * HOST 正規化成瀏覽器 Host 標頭會送的樣子：轉小寫、非 ASCII 電腦名稱轉成 punycode（xn--…）。
- * 帶 zone ID 的 IPv6（fe80::1%12）瀏覽器網址不支援，這裡會是空字串，start() 會說明後退出。
+ * HOST 用 URL 正規化一次，之後的判斷都看這個：轉小寫、中文電腦名稱轉 punycode（xn--…）、
+ * IP 的各種寫法統一（0 → 0.0.0.0、::0 → [::]、::ffff:127.0.0.1 → [::ffff:7f00:1]）。
+ * 放不進網址（帶 zone ID 的 IPv6、含空白等）時是空字串，start() 會說明後退出。
  */
-const HOST_NAME = ((): string => {
+const HOST_PARSED = ((): string => {
   try {
-    return new URL(`http://${HOST_IN_URL}`).hostname;
+    return new URL(`http://${isIP(HOST) === 6 ? `[${HOST}]` : HOST}`).hostname;
   } catch {
     return '';
   }
 })();
+
+/** 「未指定位址」（綁全部網卡）：0.0.0.0、[::]，以及 IPv4 對應到 IPv6 的寫法。 */
+const HOST_UNSPECIFIED = ['0.0.0.0', '[::]', '[::ffff:0:0]'].includes(HOST_PARSED);
+
+/** 本機迴路的名稱：localhost、127.x.x.x、[::1]，以及 IPv4 對應到 IPv6 的 127.x.x.x。 */
+function isLoopbackName(name: string): boolean {
+  return (
+    name === 'localhost' ||
+    name === '[::1]' ||
+    name === '::1' ||
+    (isIP(name) === 4 && name.startsWith('127.')) ||
+    /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(name)
+  );
+}
+
+/** 顯示與自動開啟用的網址主機：未指定位址改用 127.0.0.1；其餘用正規化後的寫法（IPv6 已有中括號）。 */
+const HOST_IN_URL = HOST_UNSPECIFIED ? '127.0.0.1' : HOST_PARSED;
+
+/** 跟瀏覽器送來的 Host 比對用的名稱。 */
+const HOST_NAME = HOST_PARSED;
+
+/**
+ * 實際監聽的位址：也用正規化後的寫法（HOST=0 原樣交給 listen 會被當成電腦名稱去查 DNS 而失敗）。
+ * 未指定位址：IPv4 寫法綁 0.0.0.0，IPv6 寫法綁 ::；IPv6 位址去掉中括號。
+ */
+const LISTEN_HOST = HOST_UNSPECIFIED
+  ? HOST_PARSED === '0.0.0.0'
+    ? '0.0.0.0'
+    : '::'
+  : HOST_PARSED.replace(/^\[|\]$/g, '');
 const DIST = path.join(projectRoot, 'dist');
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -168,12 +194,11 @@ function asUserError<T>(fn: () => T): T {
   }
 }
 
-const LOOPBACK_NAMES = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
-const LOOPBACK_ONLY = LOOPBACK_NAMES.has(HOST_NAME) && !HOST_UNSPECIFIED;
+const LOOPBACK_ONLY = isLoopbackName(HOST_NAME) && !HOST_UNSPECIFIED;
 
 /** Host 標頭可以接受的名稱：本機名稱；開放區網（HOST 不是本機）時另外接受 IP 位址與 HOST 本身。 */
 function allowedHostName(name: string): boolean {
-  if (LOOPBACK_NAMES.has(name)) return true;
+  if (isLoopbackName(name)) return true;
   if (LOOPBACK_ONLY) return false;
   // DNS rebinding 一定是用網域名稱（evil.example 解析到這台），用 IP 連進來的區網裝置不受影響。
   // 代價：開放區網時不能用電腦名稱（http://mypc:8787）連，只能用 IP
@@ -199,7 +224,7 @@ function isLocalRequest(req: IncomingMessage): boolean {
   if (!origin) return true;
   try {
     const o = new URL(origin);
-    return LOOPBACK_NAMES.has(o.hostname) || o.host === hostHeader;
+    return isLoopbackName(o.hostname) || o.host === hostHeader;
   } catch {
     return false;
   }
@@ -871,7 +896,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
     // 被別的程式占用：換下一個 port。深淺色偏好是跟著網址記的，設定頁會用小字說明
     console.log(`[meeting-assistant] port ${port} 被其他程式占用，改用 ${port + 1}`);
     port += 1;
-    server.listen(port, HOST);
+    server.listen(port, LISTEN_HOST);
   })();
 });
 
@@ -907,9 +932,16 @@ server.on('listening', () => {
 
 async function start(): Promise<void> {
   if (!HOST_NAME) {
-    failAndWait(`環境變數 HOST=${HOST} 沒辦法放進網址（帶 zone ID 的 IPv6 位址瀏覽器不支援），請改用 IPv4 或不帶 % 的位址。`);
+    failAndWait(
+      HOST.includes('%')
+        ? `環境變數 HOST=${HOST} 帶了 zone ID（%…），瀏覽器網址不支援，請改用 IPv4 或不帶 % 的位址。`
+        : `環境變數 HOST=${HOST} 不是合法的 IP 位址或電腦名稱（可能含空白或特殊字元），請修正或刪掉它。`,
+    );
     return;
   }
+  // 查「文件」「桌面」位置要叫外部程式，最慢可能十幾秒：趁還沒開始服務時查好並快取，
+  // 不要等到第一個請求才在處理途中卡住整個伺服器
+  warmKnownFolders();
   if (!PORT_VALID) {
     failAndWait(`環境變數 PORT=${PORT_RAW} 不是 1–65535 的整數，請修正或刪掉它。`);
     return;
@@ -925,7 +957,7 @@ async function start(): Promise<void> {
       process.exit(0);
     }
   }
-  server.listen(port, HOST);
+  server.listen(port, LISTEN_HOST);
 }
 
 void start();

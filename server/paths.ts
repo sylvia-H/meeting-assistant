@@ -8,7 +8,7 @@
  * - MEETING_ASSISTANT_APPDATA 把「應用程式資料」資料夾整個換掉（各平台都認），給 smoke-setup 隔離 location.json 用。
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isSea } from 'node:sea';
@@ -55,6 +55,11 @@ function knownFolders(): { documents: string; desktop: string } {
   return out;
 }
 
+/** 啟動時先查好並快取（之後的請求不會卡在叫外部程式上）。 */
+export function warmKnownFolders(): void {
+  knownFolders();
+}
+
 /** 看起來是完整的路徑，而且沒有解碼失敗的 U+FFFD（亂碼）。 */
 const looksLikePath = (p: string | undefined): p is string =>
   typeof p === 'string' && path.win32.isAbsolute(p) && !p.includes('\uFFFD');
@@ -90,7 +95,7 @@ export function foldersFromPowerShell(): Folders {
         '-Command',
         "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Environment]::GetFolderPath('MyDocuments'); [Environment]::GetFolderPath('Desktop')",
       ],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 10_000 },
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 5_000 },
     );
     const [documents, desktop] = text.split(/\r?\n/).map((line) => line.trim());
     return validFolders(documents, desktop);
@@ -108,8 +113,9 @@ export function foldersFromPowerShell(): Folders {
  */
 export function parseRegValue(text: string, name: string, env: NodeJS.ProcessEnv = process.env): string {
   const lines = text.split(/\r?\n/);
-  const prefix = `"${name}"=`;
-  const i = lines.findIndex((line) => line.startsWith(prefix));
+  // 登錄檔的值名稱不分大小寫
+  const prefix = `"${name}"=`.toLowerCase();
+  const i = lines.findIndex((line) => line.toLowerCase().startsWith(prefix));
   if (i < 0) return '';
   let raw = (lines[i] ?? '').slice(prefix.length);
   for (let j = i; (lines[j] ?? '').endsWith('\\') && j + 1 < lines.length; j++) {
@@ -129,7 +135,7 @@ export function parseRegValue(text: string, name: string, env: NodeJS.ProcessEnv
 function exportRegistryKey(key: string): string {
   const file = path.join(os.tmpdir(), `meeting-assistant-${process.pid}-${Date.now()}.reg`);
   try {
-    execFileSync('reg', ['export', key, file, '/y'], { stdio: 'ignore', windowsHide: true, timeout: 10_000 });
+    execFileSync('reg', ['export', key, file, '/y'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 });
     return readFileSync(file, 'utf16le');
   } catch {
     return '';
@@ -270,12 +276,13 @@ export function ensureWritable(dir: string, label: string): string {
   try {
     mkdirSync(abs, { recursive: true });
     writeFileSync(probe, 'ok');
-    unlinkSync(probe);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code ?? '';
     const why = code === 'EACCES' || code === 'EPERM' ? '沒有寫入權限' : code === 'ENOENT' ? '磁碟或上層路徑不存在' : code || '無法寫入';
     throw new Error(`${label}無法使用：${abs}（${why}）。請換一個位置。`);
   }
+  // 寫得進去就代表可以用；試寫檔被防毒短暫鎖住刪不掉也不算失敗
+  removeQuietly(probe);
   return abs;
 }
 

@@ -167,3 +167,7 @@ test('parseRegValue：找不到、格式不認得、變數沒有定義', () => {
   assert.equal(parseRegValue(text, 'Desktop', {}), '%X%', '沒定義的變數保留原樣（之後會被當成不是完整路徑）');
   assert.equal(parseRegValue('', 'Personal'), '');
 });
+
+test('parseRegValue：值名稱不分大小寫（登錄檔本來就不分）', () => {
+  assert.equal(parseRegValue('"personal"="C:\\\\Docs"\r\n', 'Personal'), 'C:\\Docs');
+});
