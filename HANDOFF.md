@@ -16,6 +16,38 @@
 | `npm run e2e` | 36 項通過（真 headless Edge + 假麥克風，console 零錯誤；含新版面、與會者、模擬 Ctrl+V 貼截圖、會後改逐字稿與筆記） |
 | `npm run typography` | 孤行 0 處（1440px 與 390px） |
 
+## 分支 `feat/exe-packaging`（2026-11-25，尚未合併）
+
+讓同事不用 clone、不用裝 Node 就能用：打包成單一 `meeting-assistant.exe`，並把資料搬出專案資料夾。
+裁決過程見「待辦」第 9 項。
+
+- **資料位置**：`server/paths.ts`。`%APPDATA%\meeting-assistant\location.json` 記兩個路徑（會議、設定）；
+  它不存在＝第一次啟動，前端先顯示引導頁（`src/ui/setup.ts`），API 除了 `/api/setup`、`/api/health` 一律回 409。
+  `MEETING_ASSISTANT_DATA_DIR`（smoke／e2e）會略過引導頁，行為跟以前一樣。
+- **選資料夾視窗**：`pickFolder()` 由伺服器開 PowerShell 的 `FolderBrowserDialog`（掛在 TopMost 的隱形視窗下，
+  才不會被瀏覽器蓋住）；Mac 用 `osascript`。`/api/setup/*` 與 `/api/settings/move` 會擋非本機 Origin，
+  別的網站不能叫出視窗或改位置。2026-11-25 改用 `IFileOpenDialog`（FOS_PICKFOLDERS，Add-Type 即時編譯 C#），
+  失敗才退回 `FolderBrowserDialog`；使用者已實際點過。**已知限制**：視窗沒有 Windows 11 外觀（PowerShell 沒有宣告
+  新版外觀），而且顯示英文（PowerShell 的介面語言）。要修得在 C# 裡手動切換外觀設定、指定語言，每次都要人工驗證，
+  使用者表示目前可接受，先不修。
+- **紅字**：`cloudRisk()`，設定資料夾在「文件」、「桌面」（讀登錄檔的真實位置，OneDrive 轉向也抓得到）、
+  任何 OneDrive 資料夾（含「OneDrive - 公司名」）底下時提示。只提示，不擋存檔。
+- **換位置**：會議資料夾換了不搬舊會議（錄音中擋下）；設定資料夾「搬到這裡」搬 `settings.json` 與 `.env`
+  （先複製、比對內容，再刪舊的；目的地已有同名檔就拒絕）。兩者都先試寫確認有權限。
+- **exe**：`npm run package`（`scripts/package.ts`）→ `release/meeting-assistant.exe`，約 101 MB。
+  rolldown 打包伺服器成 CJS、`dist/` 當 SEA asset、`node --build-sea`。exe 雙擊後自動開瀏覽器；
+  port 被占用時，若是自己就只開瀏覽器；被其他程式占用就自動換下一個（最多到 8796），設定頁用小字說明
+  深淺色偏好可能不同。自己設了 `PORT`、或 `npm run dev`（Vite proxy 固定 8787，`dev.ts` 設
+  `MEETING_ASSISTANT_FIXED_PORT`）時不換，改成提示原因。
+- **開發模式也用新位置**（裁決）：專案裡的 `server/.data/`、`.env`、`meetings/` 不再讀，啟動時列出要手動搬的檔。
+- **修了既有的換頁競態**（`src/ui/app.ts` 的 `route()`）：網址沒有 `#` 時，補上 `#/` 觸發的 hashchange 跟啟動時
+  直接呼叫的 `route()` 會同時跑，`/api/settings` 回得慢時兩份首頁疊在一起、各有捲軸。exe 每次開瀏覽器都不帶 `#`，
+  所以必中。改成每次換頁領序號，等完 API 發現已有更新的換頁就丟掉。重現方式：用 CDP 的 Fetch 把 `/api/settings`
+  延遲 400ms、開不帶 `#` 的網址，修前每次 2 份，修後 1 份。
+- 驗證：`npm test` 82 項、`npm run smoke`（原 smoke＋新的 `smoke-setup.ts` 27 項）、`npm run smoke:exe`
+  （同一套 smoke 對 exe 跑，含 WebSocket relay）、`npm run e2e`、引導頁與設定頁截圖（淺色、深色、390px）皆過。
+  typography 6 處孤行是既有的（在 main 上同樣 6 處，都在示範會議的筆記文字）。
+
 ## 可以直接跑的指令
 
 ```powershell
@@ -29,6 +61,8 @@ npm run build       # 型別檢查 + vite build
 npm run e2e         # 真瀏覽器 + 假麥克風（需先 build）
 npm run typography  # 中文孤行檢測（1440 / 390）
 npm run preview     # 拍截圖到 preview/（需先 build + npm start）
+npm run package     # 打包 release/meeting-assistant.exe（Node 25.5 以上）
+npm run smoke:exe   # 對打包好的 exe 跑 smoke
 ```
 
 ## 這一輪做完的事
@@ -282,6 +316,24 @@ ANC 還會主動把它濾掉）。所以錄音頁多了一個來源選單：
 9. **設定頁的會議資料夾選擇器**：2026-11-24 裁決「先不動」，維持手動輸入。曾提的做法：伺服器叫出系統原生的
    「瀏覽資料夾」視窗（瀏覽器網頁本身拿不到完整路徑）。日後要做時注意：換資料夾後舊會議不會跟著搬，
    首頁會變空，要提示或提供搬移；欄位其實已接受絕對路徑，只是標籤寫「相對專案根目錄」。
+   **2026-11-25 改裁決**（為了包成 exe，分支 `feat/exe-packaging`；理由未述）：
+   - ~~exe 版的資料預設放 `文件\Meeting Assistant`，第一次啟動不跳選資料夾的視窗。~~ 同日再改：
+     **第一次啟動跳引導頁**，分兩個位置讓人選：「會議資料」與「含完整 API key 的設定」。設定若選在
+     `文件` 底下，用紅字提示可能被 OneDrive 同步上雲端。原建議是設定放 `%APPDATA%`、會議放 `文件`，不跳引導頁。
+     理由：公司電腦的「文件」常被 OneDrive 同步，key 會上雲端。細節（皆照建議）：
+     - 預設值：會議 `文件\Meeting Assistant`，設定 `%APPDATA%\meeting-assistant`。
+     - 紅字條件：設定位置在「文件」、「桌面」或任何 OneDrive 資料夾底下。
+     - 設定頁之後可以改設定位置，並自動搬 `settings.json` 與 `.env`（先複製、確認讀得到，再刪舊的）。
+     - 兩個位置記在固定的 `%APPDATA%\meeting-assistant\location.json`（只存路徑，不存 key）。
+   - 設定頁**加「瀏覽…」按鈕**，由伺服器叫出系統原生的選資料夾視窗。原建議是完全不做視窗，維持手動輸入。
+   - 換位置時**舊會議不搬**，只提示「舊會議留在 X，可以用檔案總管把資料夾拖過去」；另外補上新路徑的寫入檢查。
+   - 打包用 Node 內建 SEA（不用 Bun），先只出 Windows 版。
+   - **開發模式也改用 `文件\Meeting Assistant`**，跟 exe 共用同一份資料（理由未述）。原建議是開發模式維持專案資料夾，
+     不搬資料、測試也不用改。
+   - 既有的 `meetings/` 與 `server/.data/settings.json` **由使用者自己手動搬**，程式不做遷移，只在啟動訊息與
+     README 說明要搬哪些檔案。原建議是第一次啟動時自動複製、原檔保留。
+   - **port 被占用時自動換下一個**，在設定頁用小字提示深淺色偏好可能不同。原建議是不換、提示後停住等 Enter。
+     理由：只影響深淺色偏好，不值得因此停住。
 
 ## 設計決策（不要隨便改，會動到資料格式）
 
@@ -312,10 +364,12 @@ server/
   store.ts    會議資料夾 CRUD、markdown 產生（atomic 寫入）
   prompt.ts   摘要 prompt（規則都在 SYSTEM_PROMPT）
   llm.ts      Claude / OpenAI / Gemini 摘要呼叫 + 錯誤翻譯
-  config.ts   設定讀寫（server/.data/settings.json）、引擎與 key 解析
+  config.ts   設定讀寫（設定資料夾的 settings.json、.env）、引擎與 key 解析
+  paths.ts    資料位置：location.json、預設路徑、雲端同步提示、試寫、搬設定檔、系統選資料夾視窗
 src/
   core/       protocol.ts（TranscriberKind、Meeting.engine）、notes.ts、markdown.ts、format.ts
   ui/         app.ts、home.ts、live.ts、result.ts、settings.ts、audio.ts（麥克風＋系統音訊混音）、api.ts、dom.ts
+              setup.ts（第一次啟動引導頁）、folder-field.ts（資料夾欄位＋瀏覽＋紅字）
   styles.css  深色、極簡、中文行高 1.75
 scripts/
   dev.ts        同時跑 API 與 Vite
@@ -324,10 +378,12 @@ scripts/
   e2e.ts        真瀏覽器 + 假麥克風（18 項）
   typography.ts 中文孤行檢測（1440 / 390）
   preview.ts    首頁／紀錄頁／設定頁截圖
+  smoke-setup.ts  第一次啟動流程（隔離的 APPDATA，起真伺服器）
+  package.ts    打包 exe（rolldown + SEA）
 public/
   pcm-worklet.js  音訊 → 16k PCM16（必須是獨立檔，不能進 bundler）
 meetings/
-  2026-11-18-1000-demo/  示範資料，可在 UI 刪除
+  （已不用：會議改存在使用者選的會議資料夾；示範資料移到 scripts/fixtures/demo-meeting/）
 ```
 
 ## 環境雷（都是實際踩過的）
