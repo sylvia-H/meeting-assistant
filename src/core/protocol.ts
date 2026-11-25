@@ -21,6 +21,10 @@ export interface MeetingNote {
   segmentIndex: number;
   /** 貼上的截圖：會議資料夾 images/ 底下的檔名 */
   image?: string;
+  /** 會後在紀錄頁補的筆記（不是會議當下打的） */
+  postMeeting?: boolean;
+  /** 最後一次修改的時間：晚於會議紀錄產生時間，就提醒可以重新產生 */
+  editedAt?: string;
 }
 
 /** 一場會議最多貼幾張截圖：每張都會送進摘要的 LLM，太多會拖慢、變貴 */
@@ -46,6 +50,8 @@ export interface Segment {
   audioPeak?: number;
   /** 使用者在錄音頁或之後手動改過這段逐字稿 */
   edited?: boolean;
+  /** 最後一次手動修改的時間：晚於會議紀錄產生時間，就提醒可以重新產生 */
+  editedAt?: string;
 }
 
 export interface ReferenceFile {
@@ -54,10 +60,18 @@ export interface ReferenceFile {
   addedAt: string;
 }
 
+export interface Attendee {
+  name: string;
+  /** 身分／角色，例如 PM、RD、SA、廠商 IT；可以空白 */
+  role: string;
+}
+
 export interface Meeting {
   id: string;
   title: string;
   agenda: string;
+  /** 與會者（選填）：幫轉錄辨識人名、幫摘要辨識角色 */
+  attendees?: Attendee[];
   startedAt: string;
   endedAt: string | null;
   status: MeetingStatus;

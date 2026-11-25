@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Meeting, MeetingNote, MeetingSummary, ReferenceFile, Segment } from '../src/core/protocol.ts';
 import { formatClock, formatDate, formatDateTime, formatDurationZh } from '../src/core/format.ts';
 import { NOTE_KINDS, KIND_ORDER } from '../src/core/notes.ts';
+import { parseAttendees } from '../src/core/attendees.ts';
 import { projectRoot, settings } from './config.ts';
 
 const TEXT_EXT = new Set([
@@ -38,6 +39,7 @@ export async function createMeeting(input: {
   title: string;
   startedAt?: string;
   agenda?: string;
+  attendees?: string;
 }): Promise<Meeting> {
   await ensureRoot();
   const s = settings();
@@ -54,6 +56,7 @@ export async function createMeeting(input: {
     id,
     title: input.title.trim() || '未命名會議',
     agenda: (input.agenda ?? '').trim(),
+    attendees: parseAttendees(input.attendees ?? ''),
     startedAt,
     endedAt: null,
     status: 'ready',
@@ -261,6 +264,172 @@ export async function writeNotes(meeting: Meeting): Promise<void> {
     lines.push('');
   }
   await writeFileAtomic(path.join(meetingDir(meeting.id), 'notes.md'), `${lines.join('\n')}\n`);
+}
+
+export interface MeetingInfoPatch {
+  title?: string;
+  startedAt?: string;
+  /** 與會者文字（一行一位或頓號分隔），任何時候都能改 */
+  attendees?: string;
+}
+
+/**
+ * 改會議名稱／預定開始時間。資料夾名稱（meeting.id）不跟著改：已開的頁面、
+ * Obsidian 裡的連結、錄音中的存檔都靠它。開始錄音後時間鎖定：計時器與每則筆記的
+ * 「第幾分鐘」都從 startedAt 算，事後改會讓整條時間軸錯位。
+ */
+export function applyInfoPatch(meeting: Meeting, patch: MeetingInfoPatch): void {
+  if (patch.title !== undefined) {
+    const title = patch.title.replace(/\s+/g, ' ').trim();
+    if (!title) throw new Error('會議名稱不能是空的');
+    if (title.length > 80) throw new Error('會議名稱最多 80 個字');
+    meeting.title = title;
+  }
+  if (patch.attendees !== undefined) {
+    meeting.attendees = parseAttendees(patch.attendees);
+  }
+  if (patch.startedAt !== undefined) {
+    const at = new Date(patch.startedAt);
+    if (Number.isNaN(at.getTime())) throw new Error('開始時間格式不對');
+    if (meeting.status !== 'ready' || meeting.segments.length > 0) {
+      throw new Error('已經開始錄音，開始時間不能再改（計時與筆記時間點都依它計算）');
+    }
+    meeting.startedAt = at.toISOString();
+  }
+}
+
+/** 沒有進行中的連線時（紀錄頁、會後）直接改檔案；minutes.md 的 frontmatter 標題一起換 */
+export function updateMeetingInfo(id: string, patch: MeetingInfoPatch): Promise<Meeting> {
+  return withMeetingLock(id, () => updateMeetingInfoNow(id, patch));
+}
+
+async function updateMeetingInfoNow(id: string, patch: MeetingInfoPatch): Promise<Meeting> {
+  const meeting = await readMeeting(id);
+  applyInfoPatch(meeting, patch);
+  await saveMeeting(meeting);
+  await writeTranscript(meeting);
+  await writeNotes(meeting);
+  if (patch.title !== undefined && meeting.minutes) {
+    const minutes = await readMinutes(id);
+    if (minutes.startsWith('---')) {
+      await writeMinutes(meeting, minutes.replace(/^title: .*$/m, `title: ${meeting.title}`));
+    }
+  }
+  return meeting;
+}
+
+// ── 筆記：會後修改／新增／刪除（錄音頁開著時由 LiveSession.mutate 套用同一套規則） ──
+
+const NOTE_KIND_SET = new Set<MeetingNote['kind']>(['section', 'decision', 'todo', 'question', 'idea', 'note']);
+const MAX_NOTE_CHARS = 4000;
+
+function cleanNoteText(text: string): string {
+  return text.replace(/\r\n?/g, '\n').trim().slice(0, MAX_NOTE_CHARS);
+}
+
+export function applyNoteEdit(
+  meeting: Meeting,
+  noteId: string,
+  patch: { text?: string; kind?: string },
+): MeetingNote {
+  const note = meeting.notes.find((n) => n.id === noteId);
+  if (!note) throw new Error('找不到這則筆記（可能已經被刪掉）');
+  if (patch.kind !== undefined) {
+    if (!NOTE_KIND_SET.has(patch.kind as MeetingNote['kind'])) throw new Error(`不認得的筆記類型：${patch.kind}`);
+    note.kind = patch.kind as MeetingNote['kind'];
+  }
+  if (patch.text !== undefined) {
+    const text = cleanNoteText(patch.text);
+    if (!text && !note.image) throw new Error('筆記不能是空的；不要的話用刪除');
+    note.text = text;
+  }
+  note.editedAt = new Date().toISOString();
+  return note;
+}
+
+/** 會後補的筆記：時間點放在會議結尾，標成會後補充 */
+export function addPostMeetingNote(meeting: Meeting, kind: string, text: string): MeetingNote {
+  if (!NOTE_KIND_SET.has(kind as MeetingNote['kind'])) throw new Error(`不認得的筆記類型：${kind}`);
+  const cleaned = cleanNoteText(text);
+  if (!cleaned) throw new Error('筆記不能是空的');
+  const end = meeting.endedAt ? new Date(meeting.endedAt).getTime() : Date.now();
+  const elapsed = Math.max(0, Math.round((end - new Date(meeting.startedAt).getTime()) / 1000));
+  const lastSeg = meeting.segments.length ? Math.max(...meeting.segments.map((s) => s.index)) : -1;
+  const note = newNote(kind as MeetingNote['kind'], cleaned, elapsed, lastSeg);
+  note.postMeeting = true;
+  note.editedAt = note.at;
+  meeting.notes.push(note);
+  return note;
+}
+
+/** 刪一則筆記，回傳被刪的那則（有截圖時呼叫端要一併刪檔） */
+export function removeNoteFrom(meeting: Meeting, noteId: string): MeetingNote | null {
+  const note = meeting.notes.find((n) => n.id === noteId) ?? null;
+  if (note) meeting.notes = meeting.notes.filter((n) => n.id !== noteId);
+  return note;
+}
+
+/**
+ * 同一場會議的「讀檔 → 改 → 寫回」要排隊：紀錄頁改內容和換類型幾乎同時送出時，
+ * 兩個請求各自讀到舊檔、各自寫回，後寫的會把先寫的修改蓋掉。
+ */
+const meetingLocks = new Map<string, Promise<unknown>>();
+
+export function withMeetingLock<T>(id: string, task: () => Promise<T>): Promise<T> {
+  const prev = meetingLocks.get(id) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(task);
+  const tail = run.catch(() => undefined);
+  meetingLocks.set(id, tail);
+  void tail.then(() => {
+    if (meetingLocks.get(id) === tail) meetingLocks.delete(id);
+  });
+  return run;
+}
+
+/** 會後（沒有進行中的連線）直接改檔：套用變更、存 meeting.json 與 notes.md */
+export function mutateMeetingFile<T>(id: string, fn: (meeting: Meeting) => T): Promise<{ meeting: Meeting; result: T }> {
+  return withMeetingLock(id, async () => {
+    const meeting = await readMeeting(id);
+    const result = fn(meeting);
+    await saveMeeting(meeting);
+    await writeTranscript(meeting);
+    await writeNotes(meeting);
+    return { meeting, result };
+  });
+}
+
+/** 一段 280 秒的逐字稿約 1–2 千字，留足空間給補充 */
+const MAX_EDIT_CHARS = 50_000;
+
+/**
+ * 手動校正一段逐字稿（錄音頁與紀錄頁共用同一套規則）。
+ * 只收已經有結果的段落：收音中／轉錄中的還沒有文字，改了也會被轉錄結果蓋掉。
+ * 回傳 false 代表內容沒變，不用存檔。
+ */
+export function applyTranscriptEdit(meeting: Meeting, index: number, text: string): boolean {
+  const seg = meeting.segments.find((s) => s.index === index);
+  if (!seg) throw new Error(`找不到第 ${index + 1} 段`);
+  if (seg.status !== 'done' && seg.status !== 'failed') {
+    throw new Error(`第 ${index + 1} 段還在轉錄，等文字出來再改`);
+  }
+  const cleaned = text.replace(/\r\n?/g, '\n').replace(/\s+$/, '').slice(0, MAX_EDIT_CHARS);
+  if (cleaned === seg.transcript) return false;
+  seg.transcript = cleaned;
+  seg.edited = true;
+  seg.editedAt = new Date().toISOString();
+  return true;
+}
+
+/** 會後（沒有進行中的連線）改逐字稿：直接改檔，transcript.md 一起更新 */
+export function editTranscriptFile(id: string, index: number, text: string): Promise<Meeting> {
+  return withMeetingLock(id, async () => {
+    const meeting = await readMeeting(id);
+    if (applyTranscriptEdit(meeting, index, text)) {
+      await saveMeeting(meeting);
+      await writeTranscript(meeting);
+    }
+    return meeting;
+  });
 }
 
 export async function writeMinutes(meeting: Meeting, markdown: string): Promise<void> {

@@ -173,8 +173,8 @@ const MOCK_MINUTES = `## TL;DR
 ## 待辦
 | 事項 | 負責人 | 期限 |
 |---|---|---|
-| 填好 Typeless 與 LLM 的 API key | Sylvia | 待確認 |
-| 找一場 30 分鐘的會議試跑 | Sylvia | 待確認 |
+| 填好 Typeless 與 LLM 的 API key | 待指派 | 待確認 |
+| 找一場 30 分鐘的會議試跑 | 待指派 | 待確認 |
 
 ## 各環節摘要
 ### 測試環節

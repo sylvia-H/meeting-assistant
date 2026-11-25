@@ -5,9 +5,13 @@ import type { Meeting, NoteKind, Segment, ServerMessage } from '../src/core/prot
 import { settings } from './config.ts';
 import { transcribePcm, geminiModelChain } from './gemini.ts';
 import { transcribeLiveSegment } from './live-transcribe.ts';
+import { formatAttendees } from '../src/core/attendees.ts';
 import { pcmLevels, silenceReason } from './transcript-guard.ts';
 import {
+  applyInfoPatch,
+  applyTranscriptEdit,
   emptySegment,
+  type MeetingInfoPatch,
   imagesDir,
   isImageName,
   meetingDir,
@@ -21,7 +25,6 @@ import {
 const BYTES_PER_SEC = 32000; // 16000 Hz × 16-bit × 1ch
 const MIN_SECTION_SECONDS = 20; // 太短的環節不切段，標籤併進當前段
 const MAX_QUEUE_BYTES = 32000 * 300; // 每段最多緩衝 5 分鐘音訊
-const MAX_EDIT_CHARS = 50_000; // 一段 280 秒的逐字稿約 1–2 千字，留足空間給補充
 
 /** 邊錄邊寫的 wav；關檔時回頭補長度欄位，不需要整段放在記憶體。 */
 class WavSink {
@@ -196,6 +199,24 @@ export class LiveSession {
     this.emit();
   }
 
+  /** 錄音頁改會議名稱／開始時間：改記憶體裡這份並廣播，存檔交給 queuePersist，才不會被下一次存檔蓋掉 */
+  updateInfo(patch: MeetingInfoPatch): Meeting {
+    applyInfoPatch(this.meeting, patch);
+    this.send({ type: 'meeting', meeting: this.meeting });
+    this.queuePersist();
+    this.emit();
+    return this.meeting;
+  }
+
+  /** 紀錄頁在錄音頁還開著時改筆記：改記憶體裡這份、廣播，存檔交給 queuePersist */
+  mutate<T>(fn: (meeting: Meeting) => T): { meeting: Meeting; result: T } {
+    const result = fn(this.meeting);
+    this.send({ type: 'meeting', meeting: this.meeting });
+    this.queuePersist();
+    this.emit();
+    return { meeting: this.meeting, result };
+  }
+
   /** 刪一則筆記；有截圖就連檔案一起刪，才不會偷偷被送進摘要 */
   async deleteNote(id: string): Promise<void> {
     const note = this.meeting.notes.find((n) => n.id === id);
@@ -217,18 +238,13 @@ export class LiveSession {
    * 聽者在錄音頁直接校正逐字稿。只收「已經有結果」的段落：收音中／轉錄中的段落
    * 還沒有文字，改了也會被轉錄結果蓋掉。改完照常存檔，transcript.md 與摘要都會用改過的版本。
    */
-  editTranscript(index: number, text: string): void {
-    const seg = this.meeting.segments.find((s) => s.index === index);
-    if (!seg) throw new Error(`找不到第 ${index + 1} 段`);
-    if (seg.status !== 'done' && seg.status !== 'failed') {
-      throw new Error(`第 ${index + 1} 段還在轉錄，等文字出來再改`);
+  editTranscript(index: number, text: string): Meeting {
+    if (applyTranscriptEdit(this.meeting, index, text)) {
+      const seg = this.meeting.segments.find((s) => s.index === index);
+      if (seg) this.send({ type: 'segment', segment: seg });
+      this.queuePersist();
     }
-    const cleaned = text.replace(/\r\n?/g, '\n').replace(/\s+$/, '').slice(0, MAX_EDIT_CHARS);
-    if (cleaned === seg.transcript) return;
-    seg.transcript = cleaned;
-    seg.edited = true;
-    this.send({ type: 'segment', segment: seg });
-    this.queuePersist();
+    return this.meeting;
   }
 
   /** 手動切段：不管這一段多短都切，讓使用者當下就能拿到逐字稿。 */
@@ -546,7 +562,12 @@ export class LiveSession {
     try {
       const result = await transcribeLiveSegment(pcm, chain, {
         transcribe: (audio, model) =>
-          transcribePcm(audio, { apiKey: s.geminiApiKey, model, language: this.meeting.language }),
+          transcribePcm(audio, {
+            apiKey: s.geminiApiKey,
+            model,
+            language: this.meeting.language,
+            attendees: formatAttendees(this.meeting.attendees),
+          }),
         onNotice: (message) => this.send({ type: 'notice', message: `第 ${seg.index + 1} 段：${message}` }),
       });
       seg.transcript = result.text;

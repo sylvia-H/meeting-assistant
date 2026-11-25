@@ -156,6 +156,8 @@ export interface TranscribeOptions {
   apiKey: string;
   model?: string;
   language?: string;
+  /** 與會者（例如「王小明（PM）、Amy（廠商 IT）」），幫助把人名寫對 */
+  attendees?: string;
 }
 
 /** 送一段 PCM 給 Gemini 逐字轉錄。回傳已經 trim 過的文字，可能是空字串。 */
@@ -166,6 +168,10 @@ export async function transcribePcm(pcm: Buffer, options: TranscribeOptions): Pr
   const model = options.model || DEFAULT_GEMINI_TRANSCRIBE_MODEL;
   const url = `${baseUrl()}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const language = options.language === 'en' ? '音訊可能是英文，請依實際語言轉錄。' : '';
+  // 與會者名單只用來把人名寫對，不能拿來猜是誰在說話
+  const people = options.attendees?.trim()
+    ? `這場會議的與會者（只用來把聽到的人名、稱呼寫對；不要因此標註說話者，也不要補出沒聽到的名字）：${options.attendees.trim()}`
+    : '';
 
   let res: Response;
   try {
@@ -179,7 +185,7 @@ export async function transcribePcm(pcm: Buffer, options: TranscribeOptions): Pr
             role: 'user',
             parts: [
               { inlineData: { mimeType: 'audio/wav', data: pcmToWav(pcm).toString('base64') } },
-              { text: `${language}\n請轉錄這段會議音訊。`.trim() },
+              { text: [language, people, '請轉錄這段會議音訊。'].filter(Boolean).join('\n') },
             ],
           },
         ],

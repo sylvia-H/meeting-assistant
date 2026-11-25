@@ -77,6 +77,15 @@ test('截圖依時間編號，筆記與圖片說明用同一個編號', () => {
   assert.ok(buildMinutesPrompt({ meeting, referenceContext: '' }).user.includes('截圖：2 張'));
 });
 
+test('會後補的筆記在提示詞裡標成會後補充', () => {
+  const text = notesForPrompt(
+    makeMeeting({
+      notes: [{ id: 'p', kind: 'idea', text: '下次先對齊報價', at: '', elapsedSec: 2400, segmentIndex: 1, postMeeting: true }],
+    }),
+  );
+  assert.ok(text.includes('（會後補充）：下次先對齊報價'));
+});
+
 test('逐字稿會被標上段號與環節', () => {
   const text = transcriptForPrompt(makeMeeting());
   assert.ok(text.includes('第 1 段'));

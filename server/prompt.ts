@@ -1,5 +1,6 @@
 import type { Meeting, MeetingNote } from '../src/core/protocol.ts';
 import { NOTE_KINDS } from '../src/core/notes.ts';
+import { formatAttendees } from '../src/core/attendees.ts';
 import { formatClock, formatDate, formatDurationZh } from '../src/core/format.ts';
 
 const PROVIDER_LABEL: Record<string, string> = {
@@ -13,7 +14,7 @@ export function providerLabel(provider: string | undefined): string {
   return PROVIDER_LABEL[provider] ?? provider;
 }
 
-export const SYSTEM_PROMPT = `你是一位資深會議紀錄員，替 Sylvia 整理她個人的會議紀錄。
+export const SYSTEM_PROMPT = `你是一位資深會議紀錄員，替使用這個工具的人（下文的「我」）整理會議紀錄。
 
 你會拿到這些素材：
 1. 逐字稿：由語音轉錄而來，依「環節」分段，可能有錯字、漏字或講者混在一起。
@@ -28,7 +29,8 @@ export const SYSTEM_PROMPT = `你是一位資深會議紀錄員，替 Sylvia 整
 - 決議必須是會議中真的達成共識的事；討論過但沒結論的放「未決與風險」。
 - 待辦若沒指定負責人或期限，寫「待指派」「待確認」，不要自己發明人名或日期。
 - 截圖上的數字、表格、時程、決議跟筆記一樣可信：整合進對應的段落，並在句尾標「（截圖 N）」。不要逐張描述圖片長什麼樣子；跟會議內容無關的部分（聊天視窗、工作列）略過。
-- 逐字稿裡明顯的錯字（人名、產品名、數字）用參考資料、筆記與截圖校正，並在最後「校正紀錄」用一行一條簡短列出；沒有就寫「無」。
+- 有與會者名單時，用它把逐字稿裡聽錯的人名改對，並依身分（PM、RD、SA、廠商等）理解誰在提需求、誰在承諾、誰負責什麼；待辦的負責人優先用名單裡的名字。逐字稿沒有標說話者，不要硬猜某句話是誰說的。
+- 逐字稿裡明顯的錯字（人名、產品名、數字）用與會者名單、參考資料、筆記與截圖校正，並在最後「校正紀錄」用一行一條簡短列出；沒有就寫「無」。
 - 輸出純 markdown，不要用 code fence 包住整篇。`;
 
 export interface PromptInput {
@@ -71,7 +73,7 @@ export function notesForPrompt(meeting: Meeting): string {
     .map((n) => {
       const at = formatDurationZh(n.elapsedSec);
       const kind = NOTE_KINDS[n.kind].label;
-      const seg = n.segmentIndex >= 0 ? `第 ${n.segmentIndex + 1} 段` : '錄音前';
+      const seg = n.postMeeting ? '會後補充' : n.segmentIndex >= 0 ? `第 ${n.segmentIndex + 1} 段` : '錄音前';
       const no = imageNo.get(n.id);
       const shot = no ? `（附截圖 ${no}）` : '';
       const text = n.text.replace(/\n/g, ' ') || (no ? '（只有截圖，沒有文字）' : '');
@@ -102,6 +104,9 @@ export function buildMinutesPrompt(input: PromptInput): { system: string; user: 
   ].join('\n');
 
   const agenda = meeting.agenda ? `\n## 我事先寫的會議目的\n\n${meeting.agenda}\n` : '';
+  const people = meeting.attendees?.length
+    ? `\n## 與會者\n\n${formatAttendees(meeting.attendees, '\n').replace(/^/gm, '- ')}\n`
+    : '';
   const refs = referenceContext.trim()
     ? `\n## 參考資料\n\n${referenceContext.trim()}\n`
     : '';
@@ -111,7 +116,7 @@ export function buildMinutesPrompt(input: PromptInput): { system: string; user: 
 ## 會議資訊
 
 ${meta}
-${agenda}${refs}
+${agenda}${people}${refs}
 ## 我的即時筆記
 
 ${notesForPrompt(meeting)}

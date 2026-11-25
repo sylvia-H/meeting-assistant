@@ -24,7 +24,13 @@ import {
   removeImage,
   removeReference,
   saveImage,
+  addPostMeetingNote,
+  applyNoteEdit,
+  editTranscriptFile,
+  mutateMeetingFile,
+  removeNoteFrom,
   saveMeeting,
+  updateMeetingInfo,
   writeMinutes,
   writeNotes,
   writeTranscript,
@@ -185,6 +191,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         title: str(body.title, '未命名會議'),
         startedAt: str(body.startedAt) || undefined,
         agenda: str(body.agenda),
+        attendees: str(body.attendees),
       });
       sendJson(res, 201, { meeting });
       return;
@@ -196,6 +203,73 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
 
     if (method === 'GET' && parts.length === 3) {
       sendJson(res, 200, { meeting: await readMeeting(id) });
+      return;
+    }
+    // 筆記：會後也能改、補、刪。錄音頁開著時交給 session，否則直接改檔
+    if (parts[3] === 'notes') {
+      const session = sessions.get(id);
+      const mutate = <T>(fn: (m: Meeting) => T) => (session ? session.mutate(fn) : mutateMeetingFile(id, fn));
+      const noteId = parts[4] ? decodeURIComponent(parts[4]) : '';
+      try {
+        if (method === 'POST' && parts.length === 4) {
+          const body = await readJson(req);
+          const { meeting, result } = await mutate((m) => addPostMeetingNote(m, str(body.kind, 'note'), str(body.text)));
+          sendJson(res, 201, { meeting, note: result });
+          return;
+        }
+        if (method === 'PATCH' && parts.length === 5) {
+          const body = await readJson(req);
+          const patch = {
+            text: typeof body.text === 'string' ? body.text : undefined,
+            kind: typeof body.kind === 'string' ? body.kind : undefined,
+          };
+          const { meeting } = await mutate((m) => applyNoteEdit(m, noteId, patch));
+          sendJson(res, 200, { meeting });
+          return;
+        }
+        if (method === 'DELETE' && parts.length === 5) {
+          const { meeting, result } = await mutate((m) => removeNoteFrom(m, noteId));
+          if (result?.image) await removeImage(id, result.image);
+          sendJson(res, 200, { meeting });
+          return;
+        }
+      } catch (err) {
+        throw new HttpError(400, err instanceof Error ? err.message : '筆記更新失敗');
+      }
+    }
+    // 改一段逐字稿：錄音頁開著時交給 session（避免被它下次存檔蓋掉），會後直接改檔
+    if (method === 'PATCH' && parts[3] === 'segments' && parts.length === 5) {
+      const index = Number(parts[4]);
+      const body = await readJson(req);
+      if (!Number.isInteger(index) || index < 0 || typeof body.transcript !== 'string') {
+        throw new HttpError(400, '要給段落編號與 transcript 文字');
+      }
+      const session = sessions.get(id);
+      try {
+        const meeting = session
+          ? session.editTranscript(index, body.transcript)
+          : await editTranscriptFile(id, index, body.transcript);
+        sendJson(res, 200, { meeting });
+      } catch (err) {
+        throw new HttpError(400, err instanceof Error ? err.message : '修改失敗');
+      }
+      return;
+    }
+    if (method === 'PATCH' && parts.length === 3) {
+      const body = await readJson(req);
+      const patch = {
+        title: typeof body.title === 'string' ? body.title : undefined,
+        startedAt: typeof body.startedAt === 'string' ? body.startedAt : undefined,
+        attendees: typeof body.attendees === 'string' ? body.attendees : undefined,
+      };
+      // 錄音頁開著時改記憶體裡那份，否則 session 下次存檔會把直接寫進檔案的修改蓋掉
+      const session = sessions.get(id);
+      try {
+        const meeting = session ? session.updateInfo(patch) : await updateMeetingInfo(id, patch);
+        sendJson(res, 200, { meeting });
+      } catch (err) {
+        throw new HttpError(400, err instanceof Error ? err.message : '更新失敗');
+      }
       return;
     }
     if (method === 'DELETE' && parts.length === 3) {
