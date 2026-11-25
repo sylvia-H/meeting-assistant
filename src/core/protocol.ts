@@ -203,6 +203,12 @@ export interface SettingsView {
   language: string;
   meetingsDir: string;
   meetingsPath: string;
+  /** 設定資料夾（settings.json、.env，含完整 API key）。 */
+  settingsPath: string;
+  /** 設定資料夾可能被同步到雲端時的提示文字；沒有風險為 null。 */
+  settingsCloudRisk: string | null;
+  /** 預設 port 被占用、自動換了 port 時的說明；沒換為 null。 */
+  portNote: string | null;
   autoSegmentSeconds: number;
   keepAudio: boolean;
   llmProvider: LlmProvider;
@@ -215,4 +221,14 @@ export interface SettingsView {
   llmKeys: Record<LlmProvider, { set: boolean; hint: string }>;
   /** transcriber 是「目前引擎是否已設定好 key」。 */
   ready: { transcriber: boolean; typeless: boolean; llm: boolean };
+}
+
+/** 第一次啟動的引導頁：還沒選資料位置時，前端只顯示這一頁。 */
+export interface SetupView {
+  configured: boolean;
+  defaults: { meetingsDir: string; settingsDir: string };
+  /** 目前的兩個位置（已設定時才有意義）。 */
+  current: { meetingsDir: string; settingsDir: string };
+  /** 系統原生的選資料夾視窗能不能用（Windows／Mac／有 zenity 的 Linux）。 */
+  canPick: boolean;
 }

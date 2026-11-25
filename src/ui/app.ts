@@ -1,12 +1,13 @@
 import type { MeetingSummary, SettingsView } from '../core/protocol.ts';
 import { dayGroup, formatShortDay } from '../core/format.ts';
-import { getSettings, listMeetings } from './api.ts';
+import { getSettings, getSetup, listMeetings } from './api.ts';
 import { el, escapeHtml, q, toast } from './dom.ts';
 import { renderHome, type View } from './home.ts';
 import { icon } from './icons.ts';
 import { renderLive } from './live.ts';
 import { renderMeeting } from './result.ts';
 import { renderSettings } from './settings.ts';
+import { renderSetup } from './setup.ts';
 import { initTheme, setThemeMode, themeMode, type ThemeMode } from './theme.ts';
 
 /** 錄音中／暫停／未開始的會議點進錄音頁；結束的點進紀錄頁 */
@@ -23,6 +24,16 @@ function statusText(m: MeetingSummary): string {
 
 export async function mountApp(host: HTMLElement): Promise<void> {
   initTheme();
+  // 第一次啟動：還沒選資料位置就先顯示引導頁，選完再進主畫面
+  try {
+    const setup = await getSetup();
+    if (!setup.configured) {
+      renderSetup(host, setup, () => void mountApp(host));
+      return;
+    }
+  } catch {
+    // 連不上伺服器時照常往下，由路由顯示「連不上本機伺服器」
+  }
   host.innerHTML = `
     <aside class="sidebar" id="sidebar" aria-label="會議清單">
       <div class="side-head">

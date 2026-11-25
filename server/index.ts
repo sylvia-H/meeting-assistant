@@ -7,7 +7,21 @@ import { spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { MAX_NOTE_IMAGES, type Meeting, type ServerMessage } from '../src/core/protocol.ts';
 import { formatClock, formatDate, formatDurationZh } from '../src/core/format.ts';
-import { invalidateSettings, projectRoot, settings, settingsView, writeSettings } from './config.ts';
+import { invalidateSettings, meetingsPath, projectRoot, setPortNote, settings, settingsView, writeSettings } from './config.ts';
+import {
+  cloudRisk,
+  defaultLocations,
+  ensureWritable,
+  isConfigured,
+  legacyDataHints,
+  moveSettingsFiles,
+  pickFolder,
+  runningAsExe,
+  settingsDir,
+  writeLocation,
+} from './paths.ts';
+import { getAsset, isSea } from 'node:sea';
+import type { SetupView } from '../src/core/protocol.ts';
 import {
   addReferences,
   countImages,
@@ -40,7 +54,11 @@ import { generateMinutes, pingLlm, type PromptImage } from './llm.ts';
 import { pingGemini } from './gemini.ts';
 import { LiveSession } from './relay.ts';
 
-const PORT = Number(process.env.PORT ?? 8787);
+const BASE_PORT = Number(process.env.PORT ?? 8787);
+// 自己指定 PORT，或 npm run dev（Vite 的 proxy 固定指向 8787）時不自動換 port
+const PORT_FIXED = Boolean(process.env.PORT) || Boolean(process.env.MEETING_ASSISTANT_FIXED_PORT);
+const PORT_TRIES = 10;
+let port = BASE_PORT;
 // 預設只綁本機迴路：同一個 Wi-Fi 下的其他裝置不該能打開你的會議、用你的額度。
 // 真的要用平板／手機連進來再設 HOST=0.0.0.0（後果自負：沒有任何登入機制）。
 const HOST = process.env.HOST || '127.0.0.1';
@@ -106,9 +124,91 @@ function normalizeMinutes(text: string, meeting: Meeting): string {
   return `${front}${body}\n`;
 }
 
+const samePath = (a: string, b: string): boolean => {
+  const n = (p: string): string => path.resolve(p).replace(/[\\/]+$/, '').toLowerCase();
+  return n(a) === n(b);
+};
+
+function setupView(): SetupView {
+  return {
+    configured: isConfigured(),
+    defaults: defaultLocations(),
+    current: { meetingsDir: meetingsPath(), settingsDir: settingsDir() },
+    canPick: process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux',
+  };
+}
+
+/** 使用者輸入造成的錯誤（路徑不能寫、目的地已有設定檔）回 400，不當成伺服器錯誤記 log。 */
+function asUserError<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    throw new HttpError(400, err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** 只接受本機頁面發出的請求：別的網站不能偷偷叫出選資料夾視窗或改資料位置。 */
+function assertLocalOrigin(req: IncomingMessage): void {
+  const origin = req.headers.origin;
+  if (!origin) return;
+  try {
+    const host = new URL(origin).hostname;
+    if (host === '127.0.0.1' || host === 'localhost' || host === '[::1]') return;
+  } catch {
+    // 落到下面
+  }
+  throw new HttpError(403, '只接受從本機開啟的頁面');
+}
+
+async function handleSetup(req: IncomingMessage, res: ServerResponse, parts: string[], method: string): Promise<void> {
+  assertLocalOrigin(req);
+  if (method === 'GET' && parts.length === 2) {
+    sendJson(res, 200, setupView());
+    return;
+  }
+  // 即時檢查路徑：引導頁與設定頁邊打字邊顯示紅字
+  if (method === 'POST' && parts[2] === 'check') {
+    const body = await readJson(req);
+    const dir = typeof body.path === 'string' ? body.path.trim() : '';
+    sendJson(res, 200, { risk: dir && path.isAbsolute(dir) ? cloudRisk(dir) : null });
+    return;
+  }
+  if (method === 'POST' && parts[2] === 'pick') {
+    const body = await readJson(req);
+    const picked = await pickFolder(
+      typeof body.initial === 'string' ? body.initial : '',
+      typeof body.title === 'string' && body.title.trim() ? body.title.trim() : '選擇資料夾',
+    );
+    sendJson(res, 200, { path: picked, risk: picked ? cloudRisk(picked) : null });
+    return;
+  }
+  if (method === 'POST' && parts.length === 2) {
+    if (isConfigured()) throw new HttpError(409, '已經設定過了。要換位置請到設定頁。');
+    const body = await readJson(req);
+    const meetings = asUserError(() => ensureWritable(typeof body.meetingsDir === 'string' ? body.meetingsDir : '', '會議資料夾'));
+    const settingsAt = asUserError(() => ensureWritable(typeof body.settingsDir === 'string' ? body.settingsDir : '', '設定資料夾'));
+    writeLocation({ meetingsDir: meetings, settingsDir: settingsAt });
+    invalidateSettings();
+    sendJson(res, 200, setupView());
+    return;
+  }
+  throw new HttpError(404, '找不到這個 API');
+}
+
 async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   const method = req.method ?? 'GET';
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
+
+  if (parts[1] === 'health') {
+    sendJson(res, 200, { app: 'meeting-assistant' });
+    return;
+  }
+  if (parts[1] === 'setup') {
+    await handleSetup(req, res, parts, method);
+    return;
+  }
+  // 還沒選資料位置前，不讓任何東西寫進預設資料夾
+  if (!isConfigured()) throw new HttpError(409, '還沒完成第一次設定，請重新整理頁面選擇資料存放位置。');
 
   // /api/settings
   if (parts[1] === 'settings') {
@@ -135,7 +235,14 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         if (key) llmKeysPatch = { ...(llmKeysPatch ?? {}), gemini: key };
       }
       if (typeof body.language === 'string') patch.language = body.language;
-      if (typeof body.meetingsDir === 'string' && body.meetingsDir.trim()) patch.meetingsDir = body.meetingsDir.trim();
+      if (typeof body.meetingsDir === 'string' && body.meetingsDir.trim()) {
+        const wanted = body.meetingsDir.trim();
+        if (!samePath(path.resolve(settingsDir(), wanted), meetingsPath())) {
+          // 錄音中換位置，進行中的會議會寫到新資料夾、找不到自己的舊檔
+          if (sessions.size) throw new HttpError(409, '還有會議在錄音或暫停中，請先結束會議再換會議資料夾。');
+          writeLocation({ meetingsDir: asUserError(() => ensureWritable(wanted, '會議資料夾')) });
+        }
+      }
       if (typeof body.autoSegmentSeconds === 'number') patch.autoSegmentSeconds = body.autoSegmentSeconds;
       if (typeof body.keepAudio === 'boolean') patch.keepAudio = body.keepAudio;
       if (typeof body.llmProvider === 'string') patch.llmProvider = body.llmProvider as never;
@@ -156,6 +263,17 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       writeSettings(patch);
       invalidateSettings();
       sendJson(res, 200, settingsView());
+      return;
+    }
+    // 換設定資料夾：settings.json 與 .env 一起搬過去，不用重填 key
+    if (method === 'POST' && parts[2] === 'move') {
+      assertLocalOrigin(req);
+      const body = await readJson(req);
+      const target = asUserError(() => ensureWritable(typeof body.settingsDir === 'string' ? body.settingsDir : '', '設定資料夾'));
+      const moved = asUserError(() => moveSettingsFiles(settingsDir(), target));
+      writeLocation({ settingsDir: target });
+      invalidateSettings();
+      sendJson(res, 200, { settings: settingsView(), moved });
       return;
     }
     if (method === 'POST' && parts[2] === 'ping') {
@@ -430,7 +548,31 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 };
 
+/** exe 版：前端檔案打包在 exe 裡（key 是 dist/ 底下的相對路徑），找不到就回 index.html。 */
+function serveEmbedded(res: ServerResponse, pathname: string): void {
+  const rel = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.replace(/^\/+/, ''));
+  let key = `dist/${rel}`;
+  let data: ArrayBuffer;
+  try {
+    data = getAsset(key);
+  } catch {
+    key = 'dist/index.html';
+    data = getAsset(key);
+  }
+  const body = Buffer.from(data);
+  res.writeHead(200, {
+    'content-type': MIME[path.extname(key).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': body.length,
+    'cache-control': 'no-cache',
+  });
+  res.end(body);
+}
+
 async function serveStatic(res: ServerResponse, pathname: string): Promise<void> {
+  if (isSea()) {
+    serveEmbedded(res, pathname);
+    return;
+  }
   if (!existsSync(DIST)) {
     res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('前端還沒 build。開發時請用 npm run dev（Vite 在 5173），或先跑 npm run build。');
@@ -586,9 +728,90 @@ async function openLive(id: string, ws: import('ws').WebSocket): Promise<void> {
   });
 }
 
-server.listen(PORT, HOST, () => {
-  const shown = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
-  console.log(`[meeting-assistant] API  http://${shown}:${PORT}`);
-  console.log(`[meeting-assistant] 會議資料夾  ${path.resolve(projectRoot, settings().meetingsDir)}`);
-  if (!existsSync(DIST)) console.log('[meeting-assistant] 開發模式：前端請開 http://localhost:5173');
+const shownHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
+const urlFor = (p: number): string => `http://${shownHost}:${p}`;
+
+function openBrowser(url: string): void {
+  // MEETING_ASSISTANT_NO_BROWSER 給自動測試用，免得每跑一次就開一個分頁
+  if (process.env.MEETING_ASSISTANT_NO_BROWSER) return;
+  const [cmd, args] =
+    process.platform === 'win32'
+      ? ['cmd', ['/c', 'start', '""', url]]
+      : process.platform === 'darwin'
+        ? ['open', [url]]
+        : ['xdg-open', [url]];
+  spawn(cmd, args as string[], { stdio: 'ignore', detached: true, windowsHide: true }).unref();
+}
+
+/** 這個 port 上跑的是不是會議助手（例如重複雙擊 exe）。 */
+async function isOurs(p: number): Promise<boolean> {
+  try {
+    const res = await fetch(`${urlFor(p)}/api/health`, { signal: AbortSignal.timeout(1500) });
+    return ((await res.json()) as { app?: string }).app === 'meeting-assistant';
+  } catch {
+    return false;
+  }
+}
+
+/** exe 是雙擊開的：出錯時視窗不能一閃就關，讓人看得到原因。 */
+function failAndWait(message: string): void {
+  console.error(`\n[meeting-assistant] ${message}`);
+  if (!runningAsExe) process.exit(1);
+  console.error('\n按 Enter 關閉這個視窗。');
+  process.stdin.resume();
+  process.stdin.once('data', () => process.exit(1));
+}
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code !== 'EADDRINUSE') {
+    failAndWait(`伺服器啟動失敗：${err.message}`);
+    return;
+  }
+  void (async () => {
+    // 已經開著一份會議助手：直接打開它就好，不開第二份
+    if (await isOurs(port)) {
+      console.log(`[meeting-assistant] 已經在執行中，直接打開 ${urlFor(port)}`);
+      if (runningAsExe) openBrowser(urlFor(port));
+      process.exit(0);
+    }
+    if (PORT_FIXED || port >= BASE_PORT + PORT_TRIES - 1) {
+      failAndWait(
+        PORT_FIXED
+          ? `port ${port} 被其他程式占用。請關掉那個程式，或設定環境變數 PORT 換一個 port 後再開。`
+          : `port ${BASE_PORT}–${port} 都被其他程式占用，請關掉一些程式後再開。`,
+      );
+      return;
+    }
+    // 被別的程式占用：換下一個 port。深淺色偏好是跟著網址記的，設定頁會用小字說明
+    console.log(`[meeting-assistant] port ${port} 被其他程式占用，改用 ${port + 1}`);
+    port += 1;
+    server.listen(port, HOST);
+  })();
 });
+
+server.on('listening', () => {
+  const appUrl = urlFor(port);
+  if (port !== BASE_PORT) {
+    setPortNote(`這次用的是 port ${port}（${BASE_PORT} 被其他程式占用）。深淺色偏好是跟著網址記的，可能跟平常不同，重新選一次即可。`);
+  }
+  console.log(`[meeting-assistant] 網址  ${appUrl}`);
+  if (isConfigured()) {
+    console.log(`[meeting-assistant] 會議資料夾  ${meetingsPath()}`);
+    console.log(`[meeting-assistant] 設定資料夾  ${settingsDir()}`);
+  } else {
+    console.log('[meeting-assistant] 第一次使用：請在瀏覽器選擇資料存放位置');
+  }
+  const legacy = legacyDataHints();
+  if (legacy.length) {
+    console.log('[meeting-assistant] 專案資料夾裡還有改版前的資料，要沿用請手動搬（搬完重新整理即可）：');
+    for (const line of legacy) console.log(`  - ${line}`);
+  }
+  if (runningAsExe) {
+    console.log('[meeting-assistant] 關閉這個視窗就會停止會議助手。');
+    openBrowser(appUrl);
+  } else if (!existsSync(DIST)) {
+    console.log('[meeting-assistant] 開發模式：前端請開 http://localhost:5173');
+  }
+});
+
+server.listen(port, HOST);

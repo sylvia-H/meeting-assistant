@@ -2,7 +2,8 @@ import type { LlmProvider, SettingsView, TranscriberKind } from '../core/protoco
 import { GEMINI_TRANSCRIBE_MODELS, LLM_MODEL_OPTIONS, TYPELESS_MODELS, type ModelOption } from '../core/protocol.ts';
 import { el, escapeHtml, q, setBusy, toast } from './dom.ts';
 import { errorText, type View } from './home.ts';
-import { pingGemini, pingLlm, saveSettings } from './api.ts';
+import { moveSettingsDir, pingGemini, pingLlm, saveSettings } from './api.ts';
+import { folderFieldHtml, wireFolderField } from './folder-field.ts';
 
 export function renderSettings(initial: SettingsView, onSaved: (next: SettingsView) => void): View {
   const root = el('div', 'page settings');
@@ -29,7 +30,8 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
 
   function markDirty(event: Event): void {
     const target = event.target as HTMLElement;
-    if (!target.closest('.group')) return;
+    // 設定資料夾是按「搬到這裡」立即生效，不算進「儲存設定」的未儲存變更
+    if (!target.closest('.group') || target.closest('.settings-dir-group')) return;
     const name = target.closest('.r')?.querySelector('.r-label')?.textContent?.trim();
     if (name) dirty.add(name);
     paintSaveBar();
@@ -118,7 +120,8 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
       <div class="scroll">
         <div class="sheet settings-sheet">
           <h1>設定</h1>
-          <p class="lead">API key 只存在這台電腦的 <code>server/.data/settings.json</code>，不會送到瀏覽器。</p>
+          <p class="lead">API key 只存在這台電腦的設定資料夾（<code>${escapeHtml(s.settingsPath)}</code>），不會送到瀏覽器。</p>
+          ${s.portNote ? `<p class="port-note">${escapeHtml(s.portNote)}</p>` : ''}
 
           <h2 class="group-title">轉錄（語音 → 逐字稿）</h2>
           <div class="group">
@@ -172,8 +175,20 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
 
           <h2 class="group-title">資料</h2>
           <div class="group">
-            ${row('會議資料夾', `<input id="meetings-dir" type="text" value="${escapeHtml(s.meetingsDir)}" />`, '可以填相對專案根目錄的路徑，或完整路徑（例如 D:\\會議紀錄）', 'meetings-dir')}
-            ${row('目前位置', `<code class="path">${escapeHtml(s.meetingsPath)}</code>`, '每場會議一個資料夾：meeting.json、transcript.md、notes.md、minutes.md、images/、reference/')}
+            ${row(
+              '會議資料夾',
+              folderFieldHtml('meetings-dir', s.meetingsPath, '會議資料夾'),
+              '每場會議一個資料夾（meeting.json、transcript.md、notes.md、minutes.md、images/、reference/）。換位置後舊會議不會跟著搬',
+              'meetings-dir',
+            )}
+          </div>
+          <div class="group settings-dir-group">
+            ${row(
+              '設定資料夾',
+              `${folderFieldHtml('settings-dir', s.settingsPath, '設定資料夾')}<button class="btn" id="btn-move-settings" type="button">搬到這裡</button>`,
+              '存 settings.json 與 .env（含完整 API key）。按「搬到這裡」會把這兩個檔搬過去，不用重填 key；不需要按「儲存設定」',
+              'settings-dir',
+            )}
           </div>
         </div>
       </div>
@@ -204,6 +219,10 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
       };
       paint();
     });
+
+    wireFolderField(root, 'meetings-dir', '選擇會議資料要存放的資料夾', false);
+    wireFolderField(root, 'settings-dir', '選擇設定（含 API key）要存放的資料夾', true);
+    q<HTMLButtonElement>(root, '#btn-move-settings').addEventListener('click', () => void moveSettings());
 
     q<HTMLButtonElement>(root, '#btn-save').addEventListener('click', () => void save());
     q<HTMLButtonElement>(root, '#btn-revert').addEventListener('click', () => {
@@ -245,7 +264,12 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
       const llmKey = q<HTMLInputElement>(root, '#llm-key').value.trim();
       if (llmKey) payload.llmKey = { provider, value: llmKey };
 
+      const before = saved.meetingsPath;
       const next = await saveSettings(payload);
+      if (next.meetingsPath !== before) {
+        toast(`會議資料夾已換到 ${next.meetingsPath}。舊會議沒有搬，還在 ${before}；要沿用就用檔案總管把會議資料夾拖過去。`, 'info', 12000);
+        window.dispatchEvent(new Event('meetings:changed'));
+      }
       current = next;
       saved = next;
       dirty = new Set();
@@ -254,6 +278,32 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
       paint();
     } catch (err) {
       toast(errorText(err), 'error');
+      setBusy(btn, false);
+    }
+  }
+
+  async function moveSettings(): Promise<void> {
+    const btn = q<HTMLButtonElement>(root, '#btn-move-settings');
+    const target = q<HTMLInputElement>(root, '#settings-dir').value.trim();
+    if (!target || target === saved.settingsPath) {
+      toast('設定資料夾沒有變更');
+      return;
+    }
+    setBusy(btn, true, '搬移中…');
+    try {
+      const res = await moveSettingsDir(target);
+      // 只更新路徑相關欄位，畫面上其他還沒儲存的修改保留
+      saved = { ...saved, settingsPath: res.settings.settingsPath, settingsCloudRisk: res.settings.settingsCloudRisk };
+      current = { ...current, settingsPath: res.settings.settingsPath, settingsCloudRisk: res.settings.settingsCloudRisk };
+      onSaved(res.settings);
+      toast(res.moved.length ? `已把 ${res.moved.join('、')} 搬到 ${res.settings.settingsPath}` : `設定資料夾已換到 ${res.settings.settingsPath}`);
+      // 不重畫整頁（會清掉還沒儲存的 key），只改路徑文字
+      q<HTMLInputElement>(root, '#settings-dir').value = res.settings.settingsPath;
+      const leadPath = root.querySelector<HTMLElement>('.lead code');
+      if (leadPath) leadPath.textContent = res.settings.settingsPath;
+    } catch (err) {
+      toast(errorText(err), 'error');
+    } finally {
       setBusy(btn, false);
     }
   }
