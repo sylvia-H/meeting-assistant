@@ -50,8 +50,8 @@ writeFileSync(
   'utf8',
 );
 
-// 有真的示範會議就複製一份來量，沒有的話只量表單頁
-const demoSource = path.resolve(import.meta.dirname, '..', 'meetings', demoId);
+// 示範會議（進版控的假資料）複製一份到暫存資料夾來量；找不到的話只量表單頁
+const demoSource = path.resolve(import.meta.dirname, 'fixtures', 'demo-meeting');
 const hasDemo = existsSync(demoSource);
 if (hasDemo) cpSync(demoSource, path.join(meetingsDir, demoId), { recursive: true });
 
