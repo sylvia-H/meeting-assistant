@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "個人會議助手：Typeless 即時轉錄 + 標記式筆記 + LLM 會議紀錄",
+  "description": "本機執行的會議助手：邊開會邊錄音轉逐字稿、邊打字做筆記，會後用 LLM 產出 markdown 會議紀錄。可打包成單一 Windows exe。",
   "scripts": {
     "dev": "node scripts/dev.ts",
     "build": "tsc --noEmit && vite build",
