@@ -4,7 +4,7 @@
  * 不碰你真正的資料：location.json、設定、會議全在暫存資料夾。
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,6 +33,8 @@ const env: NodeJS.ProcessEnv = {
   PORT: String(PORT),
 };
 delete env.MEETING_ASSISTANT_DATA_DIR;
+// 本機設了 HOST=0.0.0.0 時 Host 檢查規則不同，測試固定用預設的 127.0.0.1
+delete env.HOST;
 const server = spawn(process.execPath, ['server/index.ts'], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
 server.stdout.on('data', (c: Buffer) => (log += c.toString()));
@@ -51,9 +53,9 @@ async function waitUp(): Promise<void> {
 }
 
 /** fetch 不能改 Host 標頭，用 http 模組模擬 DNS rebinding（evil.example 解析到 127.0.0.1）。 */
-function rawRequest(pathname: string, headers: Record<string, string>): Promise<number> {
+function rawRequest(pathname: string, headers: Record<string, string>, port = PORT): Promise<number> {
   return new Promise((resolve) => {
-    const req = httpRequest({ host: '127.0.0.1', port: PORT, path: pathname, headers }, (res) => {
+    const req = httpRequest({ host: '127.0.0.1', port, path: pathname, headers }, (res) => {
       res.resume();
       resolve(res.statusCode ?? 0);
     });
@@ -154,8 +156,71 @@ try {
   let secondLog = '';
   second.stdout.on('data', (c: Buffer) => (secondLog += c.toString()));
   second.stderr.on('data', (c: Buffer) => (secondLog += c.toString()));
-  const code = await new Promise<number | null>((resolve) => second.on('exit', resolve));
+  // 萬一第一份先掛了、第二份 listen 成功，就不會自己結束：15 秒沒結束算失敗
+  const code = await new Promise<number | null>((resolve) => {
+    const timer = setTimeout(() => {
+      second.kill();
+      resolve(-1);
+    }, 15_000);
+    second.on('exit', (c) => {
+      clearTimeout(timer);
+      resolve(c);
+    });
+  });
   check(code === 1 && secondLog.includes('另一份會議助手'), '固定 port 碰到另一份會議助手時報錯退出');
+
+  // 其他設定情境：各自起一份伺服器、問完就關
+  async function withServer(
+    extra: NodeJS.ProcessEnv,
+    port: number,
+    fn: (log: () => string) => Promise<void>,
+  ): Promise<void> {
+    const child = spawn(process.execPath, ['server/index.ts'], {
+      cwd: root,
+      env: { ...env, ...extra, PORT: String(port) },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    child.stdout.on('data', (c: Buffer) => (out += c.toString()));
+    child.stderr.on('data', (c: Buffer) => (out += c.toString()));
+    try {
+      for (let i = 0; i < 50 && !out.includes('網址'); i++) await new Promise((r) => setTimeout(r, 200));
+      await fn(() => out);
+    } finally {
+      child.kill();
+    }
+  }
+
+  // location.json 損壞：啟動不能崩潰，API 回怎麼修
+  const brokenAppData = path.join(temp, 'broken-appdata');
+  mkdirSync(brokenAppData, { recursive: true });
+  writeFileSync(path.join(brokenAppData, 'location.json'), '{"settingsDir": "C:\\\\x');
+  await withServer({ MEETING_ASSISTANT_APPDATA: brokenAppData }, PORT + 1, async (log) => {
+    check(log().includes('網址'), 'location.json 損壞時伺服器照常啟動');
+    check(log().includes('內容損壞'), 'location.json 損壞時啟動訊息說明怎麼修');
+    const res = await fetch(`http://127.0.0.1:${PORT + 1}/api/settings`);
+    const body = (await res.json()) as { error?: string };
+    check(res.status === 500 && /內容損壞/.test(body.error ?? ''), 'location.json 損壞時 API 回傳怎麼修');
+  });
+
+  // HOST=0.0.0.0（開放區網）：用 IP 連可以，用網域名稱（DNS rebinding）不行
+  await withServer({ HOST: '0.0.0.0' }, PORT + 2, async () => {
+    check((await rawRequest('/api/health', { host: `192.168.1.5:${PORT + 2}` }, PORT + 2)) === 200, '開放區網時用 IP 連線照常');
+    check((await rawRequest('/api/health', { host: `evil.example:${PORT + 2}` }, PORT + 2)) === 403, '開放區網時仍擋 DNS rebinding');
+  });
+
+  // HOST 設成特定位址：用那個位址連線照常（以前會整個 403）
+  await withServer({ HOST: '127.0.0.2' }, PORT + 3, async () => {
+    const status = await new Promise<number>((resolve) => {
+      const req = httpRequest({ host: '127.0.0.2', port: PORT + 3, path: '/api/health', headers: { host: `127.0.0.2:${PORT + 3}` } }, (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      });
+      req.on('error', () => resolve(-1));
+      req.end();
+    });
+    check(status === 200, 'HOST 設成特定位址時用那個位址連線照常');
+  });
 } catch (err) {
   console.error(err);
   failures++;

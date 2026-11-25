@@ -7,7 +7,7 @@
  * - MEETING_ASSISTANT_DATA_DIR 是給 smoke／e2e 用的隔離目錄：設定與 location.json 都在那裡，視為已設定好。
  * - MEETING_ASSISTANT_APPDATA 把「應用程式資料」資料夾整個換掉（各平台都認），給 smoke-setup 隔離 location.json 用。
  */
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -58,7 +58,23 @@ function knownFolders(): { documents: string; desktop: string } {
       if (documents) out.documents = documents;
       if (desktop) out.desktop = desktop;
     } catch {
-      // 問不到就用家目錄底下的預設位置
+      // PowerShell 被公司政策（AppLocker、受限語言模式）擋掉：改讀登錄檔。
+      // 先 chcp 65001 讓 reg 用 UTF-8 輸出，中文路徑才不會變亂碼
+      const read = (name: string): string => {
+        const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders';
+        // 整串交給 cmd 自己解析（windowsVerbatimArguments），引號才不會被 Node 再跳脫一次
+        const result = spawnSync('cmd.exe', ['/d', '/s', '/c', `"chcp 65001>nul & reg query "${key}" /v ${name}"`], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          windowsHide: true,
+          windowsVerbatimArguments: true,
+          timeout: 10_000,
+        });
+        if (result.status !== 0 || typeof result.stdout !== 'string') return '';
+        return /REG_SZ\s+(.+)/.exec(result.stdout)?.[1]?.trim() ?? '';
+      };
+      out.documents = read('Personal') || out.documents;
+      out.desktop = read('Desktop') || out.desktop;
     }
   }
   shellFolders = out;
@@ -123,7 +139,12 @@ export function writeLocation(next: LocationFile): void {
   const file = locationFile();
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
-  renameSync(tmp, file);
+  try {
+    renameSync(tmp, file);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
 }
 
 /** 比對路徑用：去掉尾端分隔符號；Windows／Mac 的檔案系統不分大小寫，Linux 分。 */
@@ -210,7 +231,8 @@ export function copySettingsFiles(from: string, to: string): string[] {
       if (!readFileSync(dst).equals(readFileSync(src))) throw new Error(`複製 ${name} 後內容不一致，沒有搬移`);
     }
   } catch (err) {
-    for (const name of copied) rmSync(path.join(to, name), { force: true });
+    // 清理失敗不能蓋掉真正的錯誤原因；清不掉的留著，下次衝突檢查會提示
+    removeSettingsFiles(to, copied);
     throw err;
   }
   return moving;

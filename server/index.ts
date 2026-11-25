@@ -24,6 +24,7 @@ import {
   writeLocation,
 } from './paths.ts';
 import { getAsset, isSea } from 'node:sea';
+import { isIP } from 'node:net';
 import type { SetupView } from '../src/core/protocol.ts';
 import {
   addReferences,
@@ -61,7 +62,7 @@ const PORT_RAW = process.env.PORT?.trim() ?? '';
 const BASE_PORT = PORT_RAW ? Number(PORT_RAW) : 8787;
 const PORT_VALID = Number.isInteger(BASE_PORT) && BASE_PORT >= 1 && BASE_PORT <= 65535;
 // 自己指定 PORT，或 npm run dev（Vite 的 proxy 固定指向 8787）時不自動換 port
-const PORT_FIXED = Boolean(process.env.PORT) || Boolean(process.env.MEETING_ASSISTANT_FIXED_PORT);
+const PORT_FIXED = Boolean(PORT_RAW) || Boolean(process.env.MEETING_ASSISTANT_FIXED_PORT);
 const PORT_TRIES = 10;
 let port = BASE_PORT;
 // 預設只綁本機迴路：同一個 Wi-Fi 下的其他裝置不該能打開你的會議、用你的額度。
@@ -150,12 +151,20 @@ function asUserError<T>(fn: () => T): T {
 }
 
 const LOOPBACK_NAMES = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
-const LOOPBACK_ONLY = HOST !== '0.0.0.0' && HOST !== '::';
+const LOOPBACK_ONLY = LOOPBACK_NAMES.has(HOST);
+
+/** Host 標頭可以接受的名稱：本機名稱；開放區網（HOST 不是本機）時另外接受 IP 位址與 HOST 本身。 */
+function allowedHostName(name: string): boolean {
+  if (LOOPBACK_NAMES.has(name)) return true;
+  if (LOOPBACK_ONLY) return false;
+  // DNS rebinding 一定是用網域名稱（evil.example 解析到這台），用 IP 連進來的區網裝置不受影響。
+  // 代價：開放區網時不能用電腦名稱（http://mypc:8787）連，只能用 IP
+  return name === HOST || isIP(name.replace(/^\[|\]$/g, '')) !== 0;
+}
 
 /**
  * 只接受本機頁面發出的請求（所有 API 與 WebSocket）：
- * - Host 必須是本機名稱：擋 DNS rebinding（evil.example 解析到 127.0.0.1 時，瀏覽器會當成同源）。
- *   HOST=0.0.0.0 開放區網時不檢查 Host，那是使用者自己選的。
+ * - Host 必須是本機名稱（開放區網時另可是 IP）：擋 DNS rebinding（evil.example 解析到 127.0.0.1 時，瀏覽器會當成同源）。
  * - 有 Origin 時必須是本機或跟 Host 同一個：擋別的網站偷偷改資料位置、叫出選資料夾視窗、連 WebSocket。
  */
 function isLocalRequest(req: IncomingMessage): boolean {
@@ -166,7 +175,7 @@ function isLocalRequest(req: IncomingMessage): boolean {
   } catch {
     return false;
   }
-  if (LOOPBACK_ONLY && !LOOPBACK_NAMES.has(hostName)) return false;
+  if (!allowedHostName(hostName)) return false;
   const origin = req.headers.origin;
   if (!origin) return true;
   try {
@@ -338,7 +347,13 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       const from = settingsDir();
       // 順序：複製並比對 → location.json 改指新位置 → 最後才刪舊檔。中途任何一步失敗，key 都還在原處讀得到
       const moved = asUserError(() => copySettingsFiles(from, target));
-      writeLocation({ settingsDir: target });
+      try {
+        writeLocation({ settingsDir: target });
+      } catch (err) {
+        // 位置沒改成功：新位置的副本清掉（含 key），舊位置照常使用，使用者可以直接重試
+        removeSettingsFiles(target, moved);
+        throw err;
+      }
       invalidateSettings();
       const leftBehind = removeSettingsFiles(from, moved);
       sendJson(res, 200, { settings: settingsView(), moved, leftBehind });
@@ -841,16 +856,21 @@ server.on('listening', () => {
     setPortNote(`這次用的是 port ${port}（${BASE_PORT} 被其他程式占用）。深淺色偏好是跟著網址記的，可能跟平常不同，重新選一次即可。`);
   }
   console.log(`[meeting-assistant] 網址  ${appUrl}`);
-  if (isConfigured()) {
-    console.log(`[meeting-assistant] 會議資料夾  ${meetingsPath()}`);
-    console.log(`[meeting-assistant] 設定資料夾  ${settingsDir()}`);
-  } else {
-    console.log('[meeting-assistant] 第一次使用：請在瀏覽器選擇資料存放位置');
-  }
-  const legacy = legacyDataHints();
-  if (legacy.length) {
-    console.log('[meeting-assistant] 專案資料夾裡還有改版前的資料，要沿用請手動搬（搬完重新整理即可）：');
-    for (const line of legacy) console.log(`  - ${line}`);
+  // location.json 損壞時這裡會丟錯：只印出怎麼修，伺服器照常跑（API 也會回同一段說明），不能讓 exe 一閃就關
+  try {
+    if (isConfigured()) {
+      console.log(`[meeting-assistant] 會議資料夾  ${meetingsPath()}`);
+      console.log(`[meeting-assistant] 設定資料夾  ${settingsDir()}`);
+    } else {
+      console.log('[meeting-assistant] 第一次使用：請在瀏覽器選擇資料存放位置');
+    }
+    const legacy = legacyDataHints();
+    if (legacy.length) {
+      console.log('[meeting-assistant] 專案資料夾裡還有改版前的資料，要沿用請手動搬（搬完重新整理即可）：');
+      for (const line of legacy) console.log(`  - ${line}`);
+    }
+  } catch (err) {
+    console.error(`[meeting-assistant] ${err instanceof Error ? err.message : String(err)}`);
   }
   if (runningAsExe) {
     console.log('[meeting-assistant] 關閉這個視窗就會停止會議助手。');
