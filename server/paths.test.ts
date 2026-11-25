@@ -6,6 +6,8 @@ import path from 'node:path';
 import {
   cloudRisk,
   copySettingsFiles,
+  foldersFromPowerShell,
+  foldersFromRegistry,
   ensureWritable,
   isConfigured,
   LocationCorruptError,
@@ -126,4 +128,13 @@ test('location.json：原子寫入，損壞時報錯而不是當成沒設定過'
     if (before === undefined) delete process.env.MEETING_ASSISTANT_APPDATA;
     else process.env.MEETING_ASSISTANT_APPDATA = before;
   }
+});
+
+test('「文件」「桌面」：PowerShell 與登錄檔備援讀到一樣的完整路徑', { skip: process.platform !== 'win32' }, () => {
+  const ps = foldersFromPowerShell();
+  const reg = foldersFromRegistry();
+  assert.ok(ps && path.win32.isAbsolute(ps.documents) && path.win32.isAbsolute(ps.desktop));
+  assert.ok(reg, '登錄檔備援讀得到');
+  assert.equal(reg.documents.toLowerCase(), ps.documents.toLowerCase());
+  assert.equal(reg.desktop.toLowerCase(), ps.desktop.toLowerCase());
 });

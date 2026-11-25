@@ -196,6 +196,8 @@ try {
   mkdirSync(brokenAppData, { recursive: true });
   writeFileSync(path.join(brokenAppData, 'location.json'), '{"settingsDir": "C:\\\\x');
   await withServer({ MEETING_ASSISTANT_APPDATA: brokenAppData }, PORT + 1, async (log) => {
+    // 說明是 console.error 寫到 stderr，跟「網址」不在同一條 pipe，可能晚一點才到
+    for (let i = 0; i < 25 && !log().includes('內容損壞'); i++) await new Promise((r) => setTimeout(r, 200));
     check(log().includes('網址'), 'location.json 損壞時伺服器照常啟動');
     check(log().includes('內容損壞'), 'location.json 損壞時啟動訊息說明怎麼修');
     const res = await fetch(`http://127.0.0.1:${PORT + 1}/api/settings`);
@@ -209,8 +211,8 @@ try {
     check((await rawRequest('/api/health', { host: `evil.example:${PORT + 2}` }, PORT + 2)) === 403, '開放區網時仍擋 DNS rebinding');
   });
 
-  // HOST 設成特定位址：用那個位址連線照常（以前會整個 403）
-  await withServer({ HOST: '127.0.0.2' }, PORT + 3, async () => {
+  // HOST 設成特定位址：用那個位址連線照常（以前會整個 403）。Mac 預設沒有 127.0.0.2，跳過
+  if (process.platform !== 'darwin') await withServer({ HOST: '127.0.0.2' }, PORT + 3, async () => {
     const status = await new Promise<number>((resolve) => {
       const req = httpRequest({ host: '127.0.0.2', port: PORT + 3, path: '/api/health', headers: { host: `127.0.0.2:${PORT + 3}` } }, (res) => {
         res.resume();

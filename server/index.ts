@@ -67,7 +67,7 @@ const PORT_TRIES = 10;
 let port = BASE_PORT;
 // 預設只綁本機迴路：同一個 Wi-Fi 下的其他裝置不該能打開你的會議、用你的額度。
 // 真的要用平板／手機連進來再設 HOST=0.0.0.0（後果自負：沒有任何登入機制）。
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST?.trim() || '127.0.0.1';
 const DIST = path.join(projectRoot, 'dist');
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -159,7 +159,8 @@ function allowedHostName(name: string): boolean {
   if (LOOPBACK_ONLY) return false;
   // DNS rebinding 一定是用網域名稱（evil.example 解析到這台），用 IP 連進來的區網裝置不受影響。
   // 代價：開放區網時不能用電腦名稱（http://mypc:8787）連，只能用 IP
-  return name === HOST || isIP(name.replace(/^\[|\]$/g, '')) !== 0;
+  // URL 解析出的 hostname 已經轉小寫；HOST 可能是 MyPC 這種大小寫混用的電腦名稱
+  return name === HOST.toLowerCase() || isIP(name.replace(/^\[|\]$/g, '')) !== 0;
 }
 
 /**
@@ -351,8 +352,14 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         writeLocation({ settingsDir: target });
       } catch (err) {
         // 位置沒改成功：新位置的副本清掉（含 key），舊位置照常使用，使用者可以直接重試
-        removeSettingsFiles(target, moved);
-        throw err;
+        const stuck = removeSettingsFiles(target, moved);
+        const why = err instanceof Error ? err.message : String(err);
+        throw new HttpError(
+          500,
+          stuck.length
+            ? `沒有搬成（${why}）。新位置 ${target} 留下了 ${stuck.join('、')}（含 key）刪不掉，請自己刪掉後再試；目前仍使用原本的設定資料夾。`
+            : `沒有搬成（${why}）。目前仍使用原本的設定資料夾，可以直接再試一次。`,
+        );
       }
       invalidateSettings();
       const leftBehind = removeSettingsFiles(from, moved);
@@ -781,7 +788,8 @@ async function openLive(id: string, ws: import('ws').WebSocket): Promise<void> {
   });
 }
 
-const shownHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
+// 網址裡的 IPv6 位址要加中括號（http://[fe80::1]:8787）
+const shownHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : isIP(HOST) === 6 ? `[${HOST}]` : HOST;
 const urlFor = (p: number): string => `http://${shownHost}:${p}`;
 
 function openBrowser(url: string): void {

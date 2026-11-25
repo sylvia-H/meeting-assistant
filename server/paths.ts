@@ -7,7 +7,7 @@
  * - MEETING_ASSISTANT_DATA_DIR 是給 smoke／e2e 用的隔離目錄：設定與 location.json 都在那裡，視為已設定好。
  * - MEETING_ASSISTANT_APPDATA 把「應用程式資料」資料夾整個換掉（各平台都認），給 smoke-setup 隔離 location.json 用。
  */
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,44 +41,63 @@ function knownFolders(): { documents: string; desktop: string } {
   const home = os.homedir();
   const out = { documents: path.join(home, 'Documents'), desktop: path.join(home, 'Desktop') };
   if (process.platform === 'win32') {
-    // 不用 reg query：它的輸出是 OEM 代碼頁（繁中是 CP950），用 UTF-8 解碼時「文件」、中文使用者名稱會變亂碼。
-    // 讓 PowerShell 用 .NET 問真實位置，並指定 UTF-8 輸出。
-    try {
-      const text = execFileSync(
-        'powershell.exe',
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Environment]::GetFolderPath('MyDocuments'); [Environment]::GetFolderPath('Desktop')",
-        ],
-        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 10_000 },
-      );
-      const [documents = '', desktop = ''] = text.split(/\r?\n/).map((line) => line.trim());
-      if (documents) out.documents = documents;
-      if (desktop) out.desktop = desktop;
-    } catch {
-      // PowerShell 被公司政策（AppLocker、受限語言模式）擋掉：改讀登錄檔。
-      // 先 chcp 65001 讓 reg 用 UTF-8 輸出，中文路徑才不會變亂碼
-      const read = (name: string): string => {
-        const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders';
-        // 整串交給 cmd 自己解析（windowsVerbatimArguments），引號才不會被 Node 再跳脫一次
-        const result = spawnSync('cmd.exe', ['/d', '/s', '/c', `"chcp 65001>nul & reg query "${key}" /v ${name}"`], {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'ignore'],
-          windowsHide: true,
-          windowsVerbatimArguments: true,
-          timeout: 10_000,
-        });
-        if (result.status !== 0 || typeof result.stdout !== 'string') return '';
-        return /REG_SZ\s+(.+)/.exec(result.stdout)?.[1]?.trim() ?? '';
-      };
-      out.documents = read('Personal') || out.documents;
-      out.desktop = read('Desktop') || out.desktop;
-    }
+    const found = foldersFromPowerShell() ?? foldersFromRegistry();
+    if (found) Object.assign(out, found);
   }
   shellFolders = out;
   return out;
+}
+
+/** 看起來是完整的路徑，而且沒有解碼失敗的 U+FFFD（亂碼）。 */
+const looksLikePath = (p: string): boolean => path.win32.isAbsolute(p) && !p.includes('\uFFFD');
+
+/**
+ * 讓 PowerShell 用 .NET 問真實位置，指定 UTF-8 輸出（reg query 的輸出是 OEM 代碼頁，繁中是 CP950，
+ * 用 UTF-8 解碼會變亂碼）。被公司政策擋掉、或受限語言模式下編碼設定沒生效（輸出成亂碼）時回 null。
+ */
+export function foldersFromPowerShell(): { documents: string; desktop: string } | null {
+  try {
+    const text = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Environment]::GetFolderPath('MyDocuments'); [Environment]::GetFolderPath('Desktop')",
+      ],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout: 10_000 },
+    );
+    const [documents = '', desktop = ''] = text.split(/\r?\n/).map((line) => line.trim());
+    return looksLikePath(documents) && looksLikePath(desktop) ? { documents, desktop } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 備援：把登錄檔匯出成檔案再讀。reg export 一律寫 UTF-16LE，不經過主控台代碼頁，
+ * 中文不會變亂碼，也不用 chcp（chcp 會改到共用主控台的代碼頁）。
+ */
+export function foldersFromRegistry(): { documents: string; desktop: string } | null {
+  const file = path.join(os.tmpdir(), `meeting-assistant-shell-${process.pid}.reg`);
+  try {
+    execFileSync('reg', ['export', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders', file, '/y'], {
+      stdio: 'ignore',
+      windowsHide: true,
+      timeout: 10_000,
+    });
+    const text = readFileSync(file, 'utf16le');
+    // .reg 檔裡的值是 "Personal"="C:\\Users\\..."：反斜線被跳脫成兩個
+    const read = (name: string): string =>
+      new RegExp(`^"${name}"="(.*)"\\s*$`, 'm').exec(text)?.[1]?.replace(/\\\\/g, '\\') ?? '';
+    const documents = read('Personal');
+    const desktop = read('Desktop');
+    return looksLikePath(documents) && looksLikePath(desktop) ? { documents, desktop } : null;
+  } catch {
+    return null;
+  } finally {
+    rmSync(file, { force: true });
+  }
 }
 
 export interface LocationDefaults {
@@ -138,8 +157,8 @@ export function writeLocation(next: LocationFile): void {
   // 先寫暫存檔再改名：寫到一半被關掉也不會留下半個檔
   const file = locationFile();
   const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
   try {
+    writeFileSync(tmp, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
     renameSync(tmp, file);
   } catch (err) {
     rmSync(tmp, { force: true });
@@ -226,8 +245,9 @@ export function copySettingsFiles(from: string, to: string): string[] {
     for (const name of moving) {
       const src = path.join(from, name);
       const dst = path.join(to, name);
-      copyFileSync(src, dst);
+      // 先記下再複製：複製到一半失敗時，殘缺的目的檔也要清掉（衝突檢查已確認目的地原本沒有它）
       copied.push(name);
+      copyFileSync(src, dst);
       if (!readFileSync(dst).equals(readFileSync(src))) throw new Error(`複製 ${name} 後內容不一致，沒有搬移`);
     }
   } catch (err) {
