@@ -1,0 +1,9 @@
+{
+  "name": "meeting-assistant-promo-video",
+  "private": true,
+  "type": "module",
+  "description": "宣傳影片的腳本、旁白合成、錄影與合成腳本（與 app 本身分開）",
+  "devDependencies": {
+    "ffmpeg-static": "^5.2.0"
+  }
+}

@@ -14,3 +14,6 @@ preview/
 .impeccable/review/
 .impeccable/questions/
 .impeccable/hook.cache.json
+
+# 宣傳影片成片（放 GitHub Release 附檔，不進版控）
+video/out/
