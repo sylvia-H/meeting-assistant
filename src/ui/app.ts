@@ -165,7 +165,12 @@ export async function mountApp(host: HTMLElement): Promise<void> {
     paintList();
   }
 
+  // 換頁會等 API；兩次換頁重疊時（例如網址沒有 # 時補上 #/ 觸發的 hashchange，
+  // 跟啟動時自己呼叫的 route 同時跑），只採用最後一次，否則兩份頁面會疊在一起
+  let routeSeq = 0;
+
   async function route(): Promise<void> {
+    const seq = ++routeSeq;
     current?.destroy();
     current = null;
     viewHost.innerHTML = '';
@@ -191,10 +196,16 @@ export async function mountApp(host: HTMLElement): Promise<void> {
         view = renderHome(await loadSettings(true));
         document.title = '新會議 · 會議助手';
       }
+      // 等待期間已經有更新的換頁：丟掉這份，交給最新的那次
+      if (seq !== routeSeq) {
+        view.destroy();
+        return;
+      }
       current = view;
       viewHost.appendChild(view.node);
       if (name !== 'settings' && name !== '') void loadSettings().catch(() => undefined);
     } catch (err) {
+      if (seq !== routeSeq) return;
       const box = el('div', 'fatal');
       box.innerHTML = `
         <h1>連不上本機伺服器</h1>
