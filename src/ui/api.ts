@@ -60,8 +60,33 @@ export const createMeeting = (input: {
   title: string;
   startedAt: string;
   agenda: string;
+  attendees: string;
 }): Promise<{ meeting: Meeting }> =>
   api('/api/meetings', { method: 'POST', body: JSON.stringify(input) });
+
+export const updateMeeting = (
+  id: string,
+  patch: { title?: string; startedAt?: string; attendees?: string },
+): Promise<{ meeting: Meeting }> =>
+  api(`/api/meetings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+
+export const updateSegment = (id: string, index: number, transcript: string): Promise<{ meeting: Meeting }> =>
+  api(`/api/meetings/${encodeURIComponent(id)}/segments/${index}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ transcript }),
+  });
+
+const notesPath = (id: string, noteId = ''): string =>
+  `/api/meetings/${encodeURIComponent(id)}/notes${noteId ? `/${encodeURIComponent(noteId)}` : ''}`;
+
+export const addNote = (id: string, kind: string, text: string): Promise<{ meeting: Meeting }> =>
+  api(notesPath(id), { method: 'POST', body: JSON.stringify({ kind, text }) });
+
+export const updateNote = (id: string, noteId: string, patch: { text?: string; kind?: string }): Promise<{ meeting: Meeting }> =>
+  api(notesPath(id, noteId), { method: 'PATCH', body: JSON.stringify(patch) });
+
+export const deleteNote = (id: string, noteId: string): Promise<{ meeting: Meeting }> =>
+  api(notesPath(id, noteId), { method: 'DELETE' });
 
 export const getMeeting = (id: string): Promise<{ meeting: Meeting }> =>
   api(`/api/meetings/${encodeURIComponent(id)}`);

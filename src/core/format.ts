@@ -58,3 +58,31 @@ export function estimateCost(billedSeconds: number, model: string, prices: Recor
   const rate = prices[model] ?? 0;
   return (billedSeconds / 3600) * rate;
 }
+
+/** 2026 年 11 月 24 日 14:00（標題上方的日期行） */
+export function formatDateLong(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 ${PAD(d.getHours())}:${PAD(d.getMinutes())}`;
+}
+
+const WEEKDAYS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+
+/** 側邊欄用：今天的顯示時間，這週內顯示星期幾，更早顯示 11/18 */
+export function formatShortDay(iso: string, now = new Date()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const diffDays = Math.floor((startOfToday - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 86_400_000);
+  if (diffDays <= 0) return formatClock(iso);
+  if (diffDays < 7) return WEEKDAYS[d.getDay()] ?? '';
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/** 側邊欄分組：今天／這週／更早（未來的會議算今天） */
+export function dayGroup(iso: string, now = new Date()): '今天' | '這週' | '更早' {
+  const d = new Date(iso);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (Number.isNaN(d.getTime()) || d.getTime() >= startOfToday) return '今天';
+  return startOfToday - d.getTime() < 6 * 86_400_000 ? '這週' : '更早';
+}

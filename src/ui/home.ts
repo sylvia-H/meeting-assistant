@@ -1,104 +1,144 @@
 import type { MeetingSummary, SettingsView } from '../core/protocol.ts';
-import { formatDateTime, formatDurationZh, toLocalInputValue } from '../core/format.ts';
+import { formatBytes, formatShortDay, toLocalInputValue } from '../core/format.ts';
 import { addReferences, createMeeting, fileToBase64, listMeetings } from './api.ts';
-import { el, escapeHtml, q, setBusy, toast } from './dom.ts';
+import { el, escapeHtml, meetingsChanged, q, setBusy, toast } from './dom.ts';
+import { icon } from './icons.ts';
 
 export interface View {
   node: HTMLElement;
   destroy(): void;
 }
 
+/** 錄音頁讀這個：從「建立並開始錄音」進來的那場會議，一連上就自動開始 */
+export const AUTOSTART_KEY = 'meeting-assistant.autostart';
+export const SOURCE_KEY = 'meeting-assistant.audio-source';
+
+const PROVIDER_LABEL: Record<string, string> = { anthropic: 'Claude', openai: 'OpenAI', gemini: 'Gemini' };
+
 export function renderHome(settings: SettingsView): View {
   const root = el('div', 'page home');
-
   const pending: File[] = [];
 
-  root.innerHTML = `
-    <section class="card">
-      <h1>開始一場會議</h1>
-      <p class="muted">填好標題與時間，需要的話把參考資料一起丟進來。開始錄音後就能一邊打筆記。</p>
-      ${
-        settings.ready.transcriber
-          ? ''
-          : settings.transcriber === 'gemini'
-            ? '<div class="notice">還沒設定 Gemini API key，錄音不會有逐字稿。<a href="#/settings">去設定</a></div>'
-            : '<div class="notice">還沒設定 Typeless API key，錄音不會有逐字稿。<a href="#/settings">去設定</a></div>'
-      }
-      <form id="create-form" class="form">
-        <label class="field">
-          <span>會議標題</span>
-          <input id="title" type="text" required maxlength="80" placeholder="例如：Q4 產品路線圖討論" />
-        </label>
-        <div class="row">
-          <label class="field">
-            <span>開始時間</span>
-            <input id="started-at" type="datetime-local" />
-          </label>
-          <label class="field">
-            <span>轉錄模型（${settings.transcriber === 'gemini' ? '免費額度' : '付費'}）</span>
-            <input id="model" type="text" value="${escapeHtml(settings.transcribeModel)}" readonly />
-          </label>
-        </div>
-        <label class="field">
-          <span>會議目的（選填，會一起給摘要模型）</span>
-          <textarea id="agenda" rows="3" placeholder="這次要決定什麼？先寫下來，摘要會更準。"></textarea>
-        </label>
-        <label class="field">
-          <span>參考資料（選填，文件、規格、上一次的會議紀錄都可以）</span>
-          <input id="files" type="file" multiple />
-        </label>
-        <div id="file-list" class="file-list"></div>
-        <div class="form-actions">
-          <button class="primary" type="submit">建立會議</button>
-          <span class="muted" id="hint">建立後會開啟錄音頁；資料夾在 ${escapeHtml(settings.meetingsPath)}</span>
-        </div>
-      </form>
-    </section>
+  const missing = [
+    settings.ready.transcriber ? '' : `${settings.transcriber === 'gemini' ? 'Gemini' : 'Typeless'} 轉錄 key（沒有它就不會有逐字稿）`,
+    settings.ready.llm ? '' : '摘要用的 LLM key（會議照常錄，產生紀錄前要補上）',
+  ].filter(Boolean);
 
-    <section class="card">
-      <div class="card-head">
-        <h2>最近的會議</h2>
-        <button class="ghost" id="refresh" type="button">重新整理</button>
-      </div>
-      <div id="meeting-list" class="meeting-list"><p class="muted">載入中…</p></div>
-    </section>
+  const savedSource = localStorage.getItem(SOURCE_KEY) ?? 'mic';
+
+  root.innerHTML = `
+    <div class="toolbar"><span class="crumb"><b>新會議</b></span></div>
+    <div class="scroll">
+      <form id="create-form" class="sheet form-sheet" novalidate>
+        ${
+          missing.length
+            ? `<div class="notice">${icon('gear')}<span>還沒設定：${missing.map(escapeHtml).join('；')}。</span><a href="#/settings">前往設定</a></div>`
+            : ''
+        }
+        <input id="title" class="title-input" type="text" required maxlength="80" placeholder="會議主題，例如：Q4 產品路線圖週會" aria-label="會議主題" autocomplete="off" />
+        <dl class="props">
+          <dt><label for="started-at">開始時間</label></dt>
+          <dd><input id="started-at" type="datetime-local" class="ghost-input" /></dd>
+          <dt><label for="home-source">音訊來源</label></dt>
+          <dd>
+            <select id="home-source" class="ghost-input">
+              <option value="mic" ${savedSource === 'mic' ? 'selected' : ''}>麥克風</option>
+              <option value="mic+system" ${savedSource === 'mic+system' ? 'selected' : ''}>麥克風＋會議音訊</option>
+              <option value="system" ${savedSource === 'system' ? 'selected' : ''}>只有會議音訊</option>
+            </select>
+            <span class="hint">線上會議選「麥克風＋會議音訊」</span>
+          </dd>
+          <dt>轉錄</dt>
+          <dd><span class="prop-val">${settings.transcriber === 'gemini' ? 'Gemini' : 'Typeless'} · ${escapeHtml(settings.transcribeModel)}</span><a class="hint" href="#/settings">在設定裡改</a></dd>
+          <dt>摘要</dt>
+          <dd><span class="prop-val">${escapeHtml(PROVIDER_LABEL[settings.llmProvider] ?? settings.llmProvider)} · ${escapeHtml(settings.llmModel)}</span></dd>
+        </dl>
+
+        <label class="field-label" for="agenda">會議目的（選填）</label>
+        <textarea id="agenda" rows="3" placeholder="這場要決定什麼……寫了會讓會議紀錄更準"></textarea>
+
+        <label class="field-label" for="attendees">與會者（選填）</label>
+        <textarea id="attendees" rows="2" placeholder="王小明（PM）、Amy（廠商 IT）、陳大文（RD）"></textarea>
+        <p class="field-hint">一行一位或用頓號分隔，括號裡寫身分。會用來把逐字稿裡的人名寫對，也讓會議紀錄分清楚誰是誰；開會中、會後都能再改。</p>
+
+        <span class="field-label">參考資料（選填）</span>
+        <label class="dropzone" id="dropzone">
+          <input id="files" type="file" multiple hidden />
+          ${icon('upload')}
+          <span>把上次紀錄、規格書、提案拖到這裡，或 <b>選擇檔案</b></span>
+          <small>只用來校正人名與專有名詞、補背景，不會被轉錄</small>
+        </label>
+        <div id="file-list" class="file-chips"></div>
+
+        <div class="form-actions">
+          <button class="btn primary lg" id="btn-create-start" type="submit">建立並開始錄音</button>
+          <button class="btn lg" id="btn-create" type="button">只建立</button>
+          <span class="hint">只建立的話，開會時再從左側點進去開始</span>
+        </div>
+
+        <section class="todo-list" id="todo-list" hidden>
+          <h2>還沒整理的會議</h2>
+          <div id="todo-rows"></div>
+        </section>
+      </form>
+    </div>
   `;
 
   const form = q<HTMLFormElement>(root, '#create-form');
   const fileInput = q<HTMLInputElement>(root, '#files');
   const fileList = q<HTMLDivElement>(root, '#file-list');
   const startedAt = q<HTMLInputElement>(root, '#started-at');
-  const listHost = q<HTMLDivElement>(root, '#meeting-list');
+  const dropzone = q<HTMLElement>(root, '#dropzone');
+  const titleInput = q<HTMLInputElement>(root, '#title');
+  const sourceSelect = q<HTMLSelectElement>(root, '#home-source');
 
   startedAt.value = toLocalInputValue(new Date());
+  queueMicrotask(() => titleInput.focus());
 
-  fileInput.addEventListener('change', () => {
-    pending.length = 0;
-    if (fileInput.files) pending.push(...Array.from(fileInput.files));
-    fileList.innerHTML = pending.map((f) => `<span class="chip">${escapeHtml(f.name)}</span>`).join('');
-  });
+  sourceSelect.addEventListener('change', () => localStorage.setItem(SOURCE_KEY, sourceSelect.value));
 
-  async function loadList(): Promise<void> {
-    listHost.innerHTML = '<p class="muted">載入中…</p>';
-    try {
-      const { meetings } = await listMeetings();
-      listHost.innerHTML = meetings.length
-        ? meetings.map(renderRow).join('')
-        : '<p class="muted">還沒有任何會議。上面填一填就開始吧。</p>';
-    } catch (err) {
-      listHost.innerHTML = `<p class="muted">載入失敗：${escapeHtml(errorText(err))}</p>`;
-    }
+  function paintFiles(): void {
+    fileList.innerHTML = pending
+      .map(
+        (f, i) =>
+          `<span class="file-chip">${escapeHtml(f.name)}<small>${formatBytes(f.size)}</small><button type="button" data-i="${i}" title="移除" aria-label="移除 ${escapeHtml(f.name)}">${icon('close')}</button></span>`,
+      )
+      .join('');
   }
 
-  q<HTMLButtonElement>(root, '#refresh').addEventListener('click', () => void loadList());
-  void loadList();
+  function addFiles(files: FileList | File[]): void {
+    for (const file of Array.from(files)) {
+      if (!pending.some((p) => p.name === file.name && p.size === file.size)) pending.push(file);
+    }
+    paintFiles();
+  }
 
-  form.addEventListener('submit', async (event) => {
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files) addFiles(fileInput.files);
+    fileInput.value = '';
+  });
+  fileList.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-i]');
+    if (!button) return;
+    pending.splice(Number(button.dataset.i), 1);
+    paintFiles();
+  });
+  dropzone.addEventListener('dragover', (event) => {
     event.preventDefault();
-    const button = q<HTMLButtonElement>(form, 'button[type="submit"]');
-    const title = q<HTMLInputElement>(root, '#title').value.trim();
+    dropzone.classList.add('over');
+  });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('over'));
+  dropzone.addEventListener('drop', (event) => {
+    event.preventDefault();
+    dropzone.classList.remove('over');
+    if (event.dataTransfer?.files.length) addFiles(event.dataTransfer.files);
+  });
+
+  async function create(autostart: boolean, button: HTMLButtonElement): Promise<void> {
+    const title = titleInput.value.trim();
     if (!title) {
-      toast('請先給這場會議一個標題', 'error');
+      toast('請先給這場會議一個主題', 'error');
+      titleInput.focus();
       return;
     }
     setBusy(button, true, '建立中…');
@@ -108,46 +148,51 @@ export function renderHome(settings: SettingsView): View {
         title,
         startedAt: startedIso,
         agenda: q<HTMLTextAreaElement>(root, '#agenda').value,
+        attendees: q<HTMLTextAreaElement>(root, '#attendees').value,
       });
-
       if (pending.length) {
         const files = await Promise.all(
           pending.map(async (file) => ({ name: file.name, base64: await fileToBase64(file) })),
         );
         await addReferences(meeting.id, files);
       }
-
-      location.hash = `#/live/${meeting.id}`;
+      if (autostart) sessionStorage.setItem(AUTOSTART_KEY, meeting.id);
+      meetingsChanged();
+      location.hash = `#/live/${encodeURIComponent(meeting.id)}`;
     } catch (err) {
       toast(errorText(err), 'error');
       setBusy(button, false);
     }
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void create(true, q<HTMLButtonElement>(root, '#btn-create-start'));
+  });
+  q<HTMLButtonElement>(root, '#btn-create').addEventListener('click', (event) => {
+    void create(false, event.currentTarget as HTMLButtonElement);
   });
 
-  return { node: root, destroy() {} };
-}
+  void listMeetings()
+    .then(({ meetings }) => {
+      const todo = meetings.filter((m: MeetingSummary) => m.status === 'ended' && !m.hasMinutes && m.segmentCount + m.noteCount > 0);
+      if (!todo.length) return;
+      q<HTMLElement>(root, '#todo-rows').innerHTML = todo
+        .slice(0, 5)
+        .map(
+          (m) => `
+          <a class="todo-row" href="#/meeting/${encodeURIComponent(m.id)}">
+            <span>${escapeHtml(m.title)}</span>
+            <small>${formatShortDay(m.startedAt)} · ${m.segmentCount} 段逐字稿 · ${m.noteCount} 則筆記</small>
+            <em>產生紀錄</em>
+          </a>`,
+        )
+        .join('');
+      q<HTMLElement>(root, '#todo-list').hidden = false;
+    })
+    .catch(() => undefined);
 
-function renderRow(meeting: MeetingSummary): string {
-  const badge =
-    meeting.status === 'ended'
-      ? meeting.hasMinutes
-        ? '已整理'
-        : '待整理'
-      : meeting.status === 'ready'
-        ? '未開始'
-        : meeting.status === 'paused'
-          ? '已暫停'
-          : '錄音中';
-  const when = meeting.status === 'ready' ? '尚未開始' : formatDurationZh(meeting.durationSec);
-  return `
-    <a class="meeting-row" href="#/meeting/${encodeURIComponent(meeting.id)}">
-      <div class="meeting-main">
-        <strong>${escapeHtml(meeting.title)}</strong>
-        <span class="muted">${formatDateTime(meeting.startedAt)} · ${when} · ${meeting.noteCount} 則筆記</span>
-      </div>
-      <span class="badge ${meeting.hasMinutes ? 'badge-done' : ''}">${badge}</span>
-    </a>
-  `;
+  return { node: root, destroy() {} };
 }
 
 export function errorText(err: unknown): string {

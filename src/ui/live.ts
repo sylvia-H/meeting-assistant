@@ -1,90 +1,93 @@
 import type { ClientMessage, LiveState, Meeting, MeetingNote, Segment } from '../core/protocol.ts';
 import { MAX_NOTE_IMAGES, TYPELESS_PRICE_PER_HOUR } from '../core/protocol.ts';
-import { estimateCost, formatClock, formatDuration } from '../core/format.ts';
+import { estimateCost, formatClock, formatDateLong, formatDuration } from '../core/format.ts';
 import { NOTE_KINDS, kindMeta, parseInput } from '../core/notes.ts';
+import { meetingHead } from './meeting-head.ts';
 import { startCapture, type MicHandle } from './audio.ts';
 import { deleteNoteImage, getMeeting, imageUrl, uploadNoteImage } from './api.ts';
 import { shrinkImage } from './image.ts';
-import { el, escapeHtml, q, toast } from './dom.ts';
-import { errorText, type View } from './home.ts';
+import { icon } from './icons.ts';
+import { el, escapeHtml, meetingsChanged, q, toast } from './dom.ts';
+import { AUTOSTART_KEY, SOURCE_KEY, errorText, type View } from './home.ts';
 
 export function renderLive(id: string): View {
   const root = el('div', 'page live');
 
   root.innerHTML = `
-    <section class="live-head">
-      <div class="live-title">
-        <h1 id="meeting-title">載入中…</h1>
-        <div class="live-sub">
-          <span id="status-dot" class="dot"></span>
-          <span id="status-text">連線中</span>
-          <span class="sep">·</span>
-          <span id="segment-info">尚未開始</span>
-          <span class="sep">·</span>
-          <span id="cost-info">$0.000</span>
-        </div>
+    <div class="toolbar live-toolbar">
+      <span id="status-dot" class="rec-dot" aria-hidden="true"></span>
+      <span id="timer" class="clock" aria-label="會議時間">0:00</span>
+      <span class="meter" title="收音音量" aria-hidden="true"><span id="meter-bar"></span></span>
+      <span class="state"><span id="status-text">連線中</span><span class="dot-sep">·</span><span id="segment-info">尚未開始</span><span class="cost" id="cost-info"></span></span>
+      <div class="seg-ctl" id="view-ctl" role="radiogroup" aria-label="版面">
+        <button type="button" role="radio" data-view="side">並排</button>
+        <button type="button" role="radio" data-view="notes">筆記</button>
+        <button type="button" role="radio" data-view="transcript">逐字稿</button>
       </div>
-      <div class="live-clock">
-        <span id="timer">0:00</span>
-        <div class="meter" title="收音音量"><div id="meter-bar"></div></div>
-      </div>
-      <div class="live-source">
-        <label class="sr-only" for="audio-source">音訊來源</label>
-        <select id="audio-source" title="音訊來源">
+      <span class="sp"></span>
+      <span class="source">
+        <select id="audio-source" class="btn-select" aria-label="音訊來源" title="音訊來源">
           <option value="mic">麥克風</option>
           <option value="mic+system">麥克風＋會議音訊</option>
           <option value="system">只有會議音訊</option>
         </select>
         <span id="mic-label" class="source-label">尚未收音</span>
-      </div>
-      <div class="live-actions">
-        <button class="primary" id="btn-start" type="button">開始錄音</button>
-        <button class="ghost" id="btn-pause" type="button" hidden>暫停</button>
-        <button class="ghost" id="btn-cut" type="button" hidden>切段</button>
-        <button class="danger" id="btn-end" type="button" hidden>結束會議</button>
-      </div>
-    </section>
-
-    <div id="banner" class="banner" hidden></div>
-
-    <div class="live-body">
-      <section class="panel">
-        <header class="panel-head">
-          <h2>逐字稿</h2>
-          <span class="muted small" id="transcribe-note">逐字稿會在「切段」後出現。</span>
-        </header>
-        <div id="segments" class="segments"><p class="muted">還沒開始。</p></div>
-      </section>
-
-      <section class="panel">
-        <header class="panel-head">
-          <h2>即時筆記</h2>
-          <span class="muted small">時間軸由下往上累積</span>
-        </header>
-        <div id="notes" class="notes"><p class="muted">用下面的輸入框打第一則。</p></div>
-      </section>
+      </span>
+      <span class="toolbar-actions">
+        <button class="btn primary" id="btn-start" type="button">開始錄音</button>
+        <button class="btn" id="btn-pause" type="button" hidden>暫停</button>
+        <button class="btn" id="btn-cut" type="button" hidden>切段</button>
+        <button class="btn primary" id="btn-end" type="button" hidden>結束會議</button>
+      </span>
     </div>
 
-    <form id="composer" class="composer">
-      <span class="kind-chip" id="kind-chip">筆記</span>
-      <span class="attach" id="attach" hidden>
-        <button type="button" class="attach-remove" id="attach-remove" title="不附這張" aria-label="不附這張截圖">×</button>
-      </span>
-      <input id="note-input" type="text" autocomplete="off" placeholder="直接打，或先用前綴：# 環節　! 待辦　? 待確認　> 決議　* 想法；截圖可以直接 Ctrl+V 貼上" />
-      <button type="submit">送出</button>
-    </form>
-    <div class="legend">
-      ${Object.entries(NOTE_KINDS)
-        .map(
-          ([, meta]) =>
-            `<span class="legend-item" title="${escapeHtml(meta.hint)}"><code>${escapeHtml(meta.symbol)}</code>${escapeHtml(meta.label)}</span>`,
-        )
-        .join('')}
-      <span class="legend-item"><code>/pause</code><code>/resume</code><code>/seg 名稱</code><code>/end</code>指令</span>
+    <div id="banner" class="banner" role="alert" hidden></div>
+
+    <div class="live-body" id="live-body" data-view="side">
+      <section class="pane-notes" aria-label="即時筆記">
+        <div class="scroll" id="notes-scroll">
+          <div class="sheet" id="notes-sheet">
+            <div id="notes" class="notes-list"></div>
+          </div>
+        </div>
+      </section>
+      <div class="split" id="split" role="separator" aria-orientation="vertical" aria-label="拖曳調整筆記與逐字稿的寬度" tabindex="0" title="拖曳調整寬度，雙擊還原"></div>
+      <section class="pane-transcript" aria-label="逐字稿">
+        <header class="pane-head"><div class="m-date tr-date" id="tr-date"></div><h1 class="tr-title" id="tr-title"></h1><h2>逐字稿</h2><span class="pane-sub" id="transcribe-note">切段後出現，點文字可以直接修改</span></header>
+        <div class="scroll" id="tr-scroll"><div id="segments" class="segments"></div></div>
+      </section>
+      <div class="dock">
+        <form id="composer" class="composer">
+          <span class="tag k-note" id="kind-chip">筆記</span>
+          <span class="attach" id="attach" hidden>
+            <button type="button" class="attach-remove" id="attach-remove" title="不附這張" aria-label="不附這張截圖">${icon('close')}</button>
+          </span>
+          <input id="note-input" type="text" autocomplete="off" aria-label="輸入筆記" placeholder="寫下重點，Enter 送出（截圖可 Ctrl+V 貼上）" />
+          <button class="btn" type="submit">送出</button>
+        </form>
+        <div class="legend">
+          ${Object.entries(NOTE_KINDS)
+            .map(
+              ([kind, meta]) =>
+                `<span class="legend-item" title="${escapeHtml(meta.hint)}"><kbd>${escapeHtml(meta.symbol)}</kbd><span class="tag k-${kind}">${escapeHtml(meta.label)}</span></span>`,
+            )
+            .join('')}
+          <span class="legend-item"><kbd>/pause</kbd><kbd>/resume</kbd><kbd>/seg 名稱</kbd><kbd>/end</kbd></span>
+        </div>
+      </div>
     </div>
   `;
 
-  const titleEl = q<HTMLElement>(root, '#meeting-title');
+  const head = meetingHead(id, (next) => {
+    if (meeting) {
+      meeting.title = next.title;
+      meeting.startedAt = next.startedAt;
+    }
+    document.title = `${next.title} · 會議助手`;
+    q<HTMLElement>(root, '#tr-title').textContent = next.title;
+  });
+  q<HTMLElement>(root, '#notes-sheet').prepend(head.node);
+
   const dotEl = q<HTMLElement>(root, '#status-dot');
   const statusEl = q<HTMLElement>(root, '#status-text');
   const segmentInfo = q<HTMLElement>(root, '#segment-info');
@@ -104,6 +107,11 @@ export function renderLive(id: string): View {
   const composer = q<HTMLFormElement>(root, '#composer');
   const input = q<HTMLInputElement>(root, '#note-input');
   const chip = q<HTMLElement>(root, '#kind-chip');
+  const liveBody = q<HTMLElement>(root, '#live-body');
+  const notesScroll = q<HTMLElement>(root, '#notes-scroll');
+  const trScroll = q<HTMLElement>(root, '#tr-scroll');
+  const viewCtl = q<HTMLElement>(root, '#view-ctl');
+  const split = q<HTMLElement>(root, '#split');
 
   let meeting: Meeting | null = null;
   const notes: MeetingNote[] = [];
@@ -116,6 +124,7 @@ export function renderLive(id: string): View {
   let destroyed = false;
   let quietSince = 0;
   let quietWarned = false;
+  let lastStatus = '';
 
   // ── 連線 ────────────────────────────────────────────────
   function connect(): void {
@@ -147,17 +156,23 @@ export function renderLive(id: string): View {
           segments.push(...msg.meeting.segments);
           notes.length = 0;
           notes.push(...msg.meeting.notes);
-          titleEl.textContent = msg.meeting.title;
+          head.update(msg.meeting);
+          q<HTMLElement>(root, '#tr-title').textContent = msg.meeting.title;
           document.title = `${msg.meeting.title} · 會議助手`;
-          transcribeNote.textContent =
-            msg.meeting.engine === 'gemini'
-              ? 'Gemini 會在「切段」時把音訊轉成文字；出來的文字可以直接點進去改錯字、補充。'
-              : 'Typeless 只在「切段」時回傳文字；出來的文字可以直接點進去改錯字、補充。';
+          transcribeNote.textContent = transcribeHint(msg.meeting);
           renderAll();
           applyState(msg.state);
           if (msg.meeting.status === 'paused' || msg.meeting.status === 'recording') {
             btnStart.textContent = '繼續收音';
             btnStart.hidden = false;
+            // 黃色只給一個主要動作：暫停時「結束會議」是主要的，繼續收音退成一般按鈕
+            btnStart.classList.remove('primary');
+            btnEnd.hidden = false;
+          }
+          // 從首頁「建立並開始錄音」進來：一連上就開始，不用再按一次
+          if (sessionStorage.getItem(AUTOSTART_KEY) === id) {
+            sessionStorage.removeItem(AUTOSTART_KEY);
+            if (msg.meeting.status === 'ready') void startRecording();
           }
           break;
         case 'state':
@@ -165,10 +180,11 @@ export function renderLive(id: string): View {
           break;
         case 'meeting':
           meeting = msg.meeting;
-          transcribeNote.textContent =
-            msg.meeting.engine === 'gemini'
-              ? 'Gemini 會在「切段」時把音訊轉成文字；出來的文字可以直接點進去改錯字、補充。'
-              : 'Typeless 只在「切段」時回傳文字；出來的文字可以直接點進去改錯字、補充。';
+          notes.length = 0;
+          notes.push(...msg.meeting.notes);
+          head.update(msg.meeting);
+          q<HTMLElement>(root, '#tr-title').textContent = msg.meeting.title;
+          transcribeNote.textContent = transcribeHint(msg.meeting);
           renderAll();
           break;
         case 'segment': {
@@ -192,6 +208,7 @@ export function renderLive(id: string): View {
           meeting = msg.meeting;
           ending = true;
           teardownMic();
+          meetingsChanged();
           toast('會議已結束，正在開啟整理頁');
           location.hash = `#/meeting/${encodeURIComponent(id)}`;
           break;
@@ -208,7 +225,7 @@ export function renderLive(id: string): View {
       if (destroyed || ending) return;
       setStatus('連線中斷');
       banner.hidden = false;
-      banner.innerHTML = `與本機伺服器的連線斷了。錄音已自動存檔並暫停。<button class="ghost" id="btn-reconnect" type="button">重新連線</button>`;
+      banner.innerHTML = `<span>與本機伺服器的連線斷了。錄音已自動存檔並暫停。</span><button class="btn" id="btn-reconnect" type="button">重新連線</button>`;
       q<HTMLButtonElement>(banner, '#btn-reconnect').addEventListener('click', () => {
         banner.hidden = true;
         connect();
@@ -226,7 +243,6 @@ export function renderLive(id: string): View {
   }
 
   // ── 音訊來源 ────────────────────────────────────────────
-  const SOURCE_KEY = 'meeting-assistant.audio-source';
   type SourceMode = 'mic' | 'mic+system' | 'system';
 
   function savedSource(): SourceMode {
@@ -352,6 +368,12 @@ export function renderLive(id: string): View {
 
   function applyState(state: LiveState): void {
     if (meeting) meeting.status = state.status;
+    if (state.status !== lastStatus) {
+      // 伺服器存檔是非同步的：稍等一下再讓側邊欄重抓，才不會抓到舊狀態
+      if (lastStatus) window.setTimeout(meetingsChanged, 800);
+      lastStatus = state.status;
+      if (meeting) head.update(meeting);
+    }
     timerEl.textContent = formatDuration(state.elapsedSec);
     statusEl.textContent =
       state.status === 'recording'
@@ -365,11 +387,13 @@ export function renderLive(id: string): View {
     segmentInfo.textContent =
       state.segmentIndex >= 0
         ? `第 ${state.segmentIndex + 1} 段${state.segmentLabel ? ` · ${state.segmentLabel}` : ''} · ${formatDuration(state.segmentElapsedSec)}${state.pendingSegments ? ` · ${state.pendingSegments} 段整理中` : ''}`
-        : '尚未開始';
+        : segments.length
+          ? `已錄 ${segments.length} 段`
+          : '尚未開始';
     costInfo.textContent =
       meeting?.engine === 'gemini'
-        ? 'Gemini 免費額度'
-        : `$${estimateCost(state.billedSeconds, meeting?.transcribeModel ?? '', TYPELESS_PRICE_PER_HOUR).toFixed(3)}`;
+        ? ''
+        : ` · $${estimateCost(state.billedSeconds, meeting?.transcribeModel ?? '', TYPELESS_PRICE_PER_HOUR).toFixed(3)}`;
     renderSegments();
   }
 
@@ -381,6 +405,7 @@ export function renderLive(id: string): View {
   function renderAll(): void {
     renderSegments();
     renderNotes();
+    paintTranscriptDate();
   }
 
   // 逐字稿可以直接改：每段一個 article，用 index 當 key 增量更新。
@@ -408,11 +433,11 @@ export function renderLive(id: string): View {
     const editable = seg.status === 'done' || seg.status === 'failed';
     const status =
       seg.status === 'open'
-        ? `<p class="muted recording">收音中…（切段後才會出現逐字稿）</p>`
+        ? `<p class="seg-status live">收音中…切段後出現逐字稿</p>`
         : seg.status === 'finalizing'
-          ? `<p class="muted">轉錄中…</p>`
+          ? `<p class="seg-status">轉錄中…</p>`
           : seg.status === 'failed'
-            ? `<p class="warn">這一段失敗：${escapeHtml(seg.error ?? '未知原因')}</p>`
+            ? `<p class="seg-error">這一段失敗：${escapeHtml(seg.error ?? '未知原因')}</p>`
             : '';
     const placeholder =
       seg.status === 'failed' ? '轉錄失敗。記得這段在談什麼的話，可以直接打在這裡補上。' : '這段沒有文字，可以直接補上。';
@@ -421,14 +446,15 @@ export function renderLive(id: string): View {
       ? `<textarea class="seg-text" data-index="${seg.index}" rows="1" spellcheck="false" aria-label="第 ${seg.index + 1} 段逐字稿" placeholder="${placeholder}">${escapeHtml(seg.transcript)}</textarea>`
       : '';
     return `
-      <header>
+      <h3 class="seg-head">
         <span class="seg-index">${String(seg.index + 1).padStart(2, '0')}</span>
-        <strong>${escapeHtml(label)}</strong>
-        <span class="muted small">${formatClock(seg.startedAt)}${duration}</span>
-        ${seg.edited ? `<span class="seg-edited small">已校正</span>` : ''}
-        <span class="seg-save small" aria-live="polite"></span>
-      </header>
-      ${status}${body}`;
+        <span class="seg-label">${escapeHtml(label)}</span>
+        <span class="seg-time">${formatClock(seg.startedAt)}${duration}</span>
+        ${seg.edited ? `<span class="seg-edited">已校正</span>` : ''}
+        <span class="seg-save" aria-live="polite"></span>
+      </h3>
+      ${status}${body}
+      <div class="seg-notes"></div>`;
   }
 
   function fitTextarea(area: HTMLTextAreaElement): void {
@@ -487,12 +513,12 @@ export function renderLive(id: string): View {
     if (!visible.length) {
       segEls.clear();
       segmentsHost.innerHTML = segments.length
-        ? `<p class="muted">錄音中，等第一個切段。</p>`
-        : `<p class="muted">還沒開始。按右上角「開始錄音」，第一段會在切段後出現。</p>`;
+        ? `<p class="empty">錄音中，第一段會在切段後出現。</p>`
+        : `<p class="empty">還沒開始。按右上角「開始錄音」，第一段會在切段後出現。</p>`;
       return;
     }
 
-    const stick = isNearBottom(segmentsHost);
+    const stick = isNearBottom(trScroll);
     const keep = new Set(visible.map((seg) => seg.index));
     for (const [index, entry] of segEls) {
       if (!keep.has(index)) {
@@ -538,32 +564,143 @@ export function renderLive(id: string): View {
       }
     }
 
-    if (added && stick) segmentsHost.scrollTop = segmentsHost.scrollHeight;
+    paintInlineNotes();
+    paintTranscriptDate();
+    if (added && stick) trScroll.scrollTop = trScroll.scrollHeight;
+  }
+
+  function noteTime(note: MeetingNote): string {
+    return `<time datetime="${escapeHtml(note.at)}" title="會議第 ${formatDuration(note.elapsedSec)}">${formatClock(note.at)}</time>`;
+  }
+
+  function noteRow(note: MeetingNote): string {
+    const meta = kindMeta(note.kind);
+    const shot = note.image
+      ? `<a class="note-shot" href="${imageUrl(id, note.image)}" target="_blank" rel="noopener" title="開新分頁看大圖"><img src="${imageUrl(id, note.image)}" alt="截圖${note.text ? `：${escapeHtml(note.text)}` : ''}" loading="lazy" /></a>` +
+        `<button type="button" class="note-del" data-note-id="${escapeHtml(note.id)}">${icon('trash')}刪除截圖</button>`
+      : '';
+    return `
+      <div class="note${note.image ? ' has-shot' : ''}">
+        <span class="tag k-${note.kind}">${meta.label}</span>
+        <div class="note-body"><span class="note-text">${escapeHtml(note.text)}</span>${shot}</div>
+        ${noteTime(note)}
+      </div>`;
   }
 
   function renderNotes(): void {
+    const stick = isNearBottom(notesScroll);
     if (!notes.length) {
-      notesHost.innerHTML = `<p class="muted">用下面的輸入框打第一則。</p>`;
+      notesHost.innerHTML = `<p class="empty">在下面的輸入框打第一則。用前綴分類：<b>#</b> 環節、<b>!</b> 待辦、<b>?</b> 待確認、<b>&gt;</b> 決議、<b>*</b> 想法；截圖可以直接貼上。</p>`;
+      paintInlineNotes();
       return;
     }
+    // 環節（# 名稱）當小標，把之後的筆記分組
     notesHost.innerHTML = notes
-      .map((note) => {
-        const meta = kindMeta(note.kind);
-        // 一行寫完：.note-text 是 pre-wrap，模板裡的換行會變成空白行
-        const shot = note.image
-          ? `<a class="note-shot" href="${imageUrl(id, note.image)}" target="_blank" rel="noopener" title="開新分頁看大圖"><img src="${imageUrl(id, note.image)}" alt="截圖${note.text ? `：${escapeHtml(note.text)}` : ''}" loading="lazy" /></a>` +
-            `<button type="button" class="note-del" data-note-id="${escapeHtml(note.id)}" title="刪掉這則截圖筆記">刪除截圖</button>`
-          : '';
-        return `
-          <div class="note${note.image ? ' has-shot' : ''}" style="--kind:${meta.color}">
-            <span class="note-time">${formatDuration(note.elapsedSec)}</span>
-            <span class="note-kind">${meta.label}</span>
-            <span class="note-text">${escapeHtml(note.text)}${shot}</span>
-          </div>`;
-      })
+      .map((note) =>
+        note.kind === 'section'
+          ? `<h2 class="sec"><span>${escapeHtml(note.text)}</span>${noteTime(note)}</h2>`
+          : noteRow(note),
+      )
       .join('');
-    notesHost.scrollTop = notesHost.scrollHeight;
+    paintInlineNotes();
+    if (stick) notesScroll.scrollTop = notesScroll.scrollHeight;
   }
+
+  /** 「逐字稿」版面：筆記依段落插在對應段落下面（其他版面用 CSS 藏起來） */
+  function paintInlineNotes(): void {
+    for (const [index, entry] of segEls) {
+      const slot = entry.el.querySelector<HTMLElement>('.seg-notes');
+      if (!slot) continue;
+      const mine = notes.filter((n) => n.segmentIndex === index && n.kind !== 'section');
+      slot.innerHTML = mine
+        .map(
+          (n) =>
+            `<div class="inline-note"><span class="tag k-${n.kind}">${kindMeta(n.kind).label}</span><span>${escapeHtml(n.text || '（截圖）')}</span>${noteTime(n)}</div>`,
+        )
+        .join('');
+    }
+  }
+
+  /** 「逐字稿」版面最上方的日期行，跟筆記版面的標題區一致 */
+  function paintTranscriptDate(): void {
+    if (!meeting) return;
+    const done = segments.filter((s) => s.transcript.trim()).length;
+    q<HTMLElement>(root, '#tr-date').textContent = `${formatDateLong(meeting.startedAt)} · 逐字稿 ${done} 段`;
+  }
+
+  function transcribeHint(m: Meeting): string {
+    return m.engine === 'gemini' ? 'Gemini 在切段時轉成文字，點文字可直接修改' : 'Typeless 在切段時回傳文字，點文字可直接修改';
+  }
+
+  // ── 版面：並排／筆記／逐字稿 ───────────────────────────
+  const VIEW_KEY = 'meeting-assistant.view';
+  type ViewMode = 'side' | 'notes' | 'transcript';
+
+  function setView(mode: ViewMode): void {
+    liveBody.dataset.view = mode;
+    for (const b of viewCtl.querySelectorAll<HTMLButtonElement>('button')) {
+      const on = b.dataset.view === mode;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', String(on));
+    }
+    input.placeholder = pendingImage
+      ? '幫這張截圖寫一句說明（可留白），按 Enter 送出'
+      : mode === 'transcript'
+        ? '邊看邊記，筆記會插在目前這段下面'
+        : '寫下重點，Enter 送出（截圖可 Ctrl+V 貼上）';
+    for (const area of segmentsHost.querySelectorAll<HTMLTextAreaElement>('textarea.seg-text')) fitTextarea(area);
+  }
+
+  viewCtl.addEventListener('click', (event) => {
+    const mode = (event.target as HTMLElement).closest<HTMLButtonElement>('button')?.dataset.view as ViewMode | undefined;
+    if (!mode) return;
+    localStorage.setItem(VIEW_KEY, mode);
+    setView(mode);
+  });
+
+  // ── 分隔線：拖曳調整逐字稿欄寬，記住寬度；雙擊還原；鍵盤左右鍵 ──
+  const WIDTH_KEY = 'meeting-assistant.transcript-width';
+  const MIN_TR = 260;
+  const MIN_NOTES = 420;
+
+  function setTranscriptWidth(px: number): number {
+    const max = Math.max(MIN_TR, liveBody.clientWidth - MIN_NOTES);
+    const w = Math.round(Math.min(Math.max(px, MIN_TR), max));
+    liveBody.style.setProperty('--tr-w', `${w}px`);
+    split.setAttribute('aria-valuenow', String(w));
+    for (const area of segmentsHost.querySelectorAll<HTMLTextAreaElement>('textarea.seg-text')) fitTextarea(area);
+    return w;
+  }
+
+  split.addEventListener('pointerdown', (event) => {
+    split.setPointerCapture(event.pointerId);
+    split.classList.add('drag');
+    document.body.classList.add('resizing');
+    const move = (ev: PointerEvent): void => {
+      setTranscriptWidth(liveBody.getBoundingClientRect().right - ev.clientX);
+    };
+    const up = (): void => {
+      split.classList.remove('drag');
+      document.body.classList.remove('resizing');
+      split.removeEventListener('pointermove', move);
+      const w = parseInt(liveBody.style.getPropertyValue('--tr-w'), 10);
+      if (w) localStorage.setItem(WIDTH_KEY, String(w));
+    };
+    split.addEventListener('pointermove', move);
+    split.addEventListener('pointerup', up, { once: true });
+    split.addEventListener('pointercancel', up, { once: true });
+  });
+  split.addEventListener('dblclick', () => {
+    liveBody.style.removeProperty('--tr-w');
+    localStorage.removeItem(WIDTH_KEY);
+  });
+  split.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const pane = q<HTMLElement>(root, '.pane-transcript');
+    const w = setTranscriptWidth(pane.getBoundingClientRect().width + (event.key === 'ArrowLeft' ? 24 : -24));
+    localStorage.setItem(WIDTH_KEY, String(w));
+  });
 
   function isNearBottom(node: HTMLElement): boolean {
     return node.scrollHeight - node.scrollTop - node.clientHeight < 120;
@@ -574,12 +711,11 @@ export function renderLive(id: string): View {
     const parsed = parseInput(input.value);
     if (parsed.type === 'command') {
       chip.textContent = `指令 · ${parsed.command}`;
-      chip.style.color = '#94a3b8';
+      chip.className = 'tag k-cmd';
       return;
     }
-    const meta = kindMeta(parsed.kind);
-    chip.textContent = meta.label;
-    chip.style.color = meta.color;
+    chip.textContent = kindMeta(parsed.kind).label;
+    chip.className = `tag k-${parsed.kind}`;
   }
 
   // ── 截圖 ────────────────────────────────────────────────
@@ -599,9 +735,7 @@ export function renderLive(id: string): View {
       img.src = imageUrl(id, name);
       attach.prepend(img);
     }
-    input.placeholder = name
-      ? '幫這張截圖寫一句說明（可留白），按 Enter 送出'
-      : '直接打，或先用前綴：# 環節　! 待辦　? 待確認　> 決議　* 想法；截圖可以直接 Ctrl+V 貼上';
+    setView((liveBody.dataset.view as ViewMode) || 'side');
   }
 
   function discardPending(): void {
@@ -785,6 +919,13 @@ export function renderLive(id: string): View {
   });
 
   setSource(savedSource(), false);
+  {
+    const savedView = localStorage.getItem(VIEW_KEY);
+    setView(savedView === 'notes' || savedView === 'transcript' ? savedView : 'side');
+    const savedWidth = Number(localStorage.getItem(WIDTH_KEY));
+    if (savedWidth) requestAnimationFrame(() => setTranscriptWidth(savedWidth));
+  }
+  renderNotes();
   connect();
   input.focus();
 

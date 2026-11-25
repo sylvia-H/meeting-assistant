@@ -27,6 +27,16 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
       <input id="${id}" type="text" class="model-custom" value="${escapeHtml(value)}" placeholder="輸入模型 ID" aria-label="${escapeHtml(label)}（自行輸入）" hidden />`;
   }
 
+  function markDirty(event: Event): void {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.group')) return;
+    const name = target.closest('.r')?.querySelector('.r-label')?.textContent?.trim();
+    if (name) dirty.add(name);
+    paintSaveBar();
+  }
+  root.addEventListener('input', markDirty);
+  root.addEventListener('change', markDirty);
+
   root.addEventListener('change', (event) => {
     const select = event.target;
     if (!(select instanceof HTMLSelectElement) || !select.dataset.modelFor) return;
@@ -41,142 +51,139 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
     }
   });
 
-  function transcriptionFields(s: SettingsView): string {
-    if (s.transcriber === 'gemini') {
-      return `
-        <label class="field">
-          <span>Gemini API key ${s.geminiKeySet ? `<em class="ok">已設定 ${escapeHtml(s.geminiKeyHint)}</em>` : '<em class="warn">尚未設定</em>'}</span>
-          <input id="gemini-key" type="password" autocomplete="off" placeholder="${s.geminiKeySet ? '要換再填，留白代表不變' : 'AIza...'}" />
-        </label>
-        <div class="row">
-          <label class="field">
-            <span>轉錄模型</span>
-            ${modelPicker('gemini-model', GEMINI_TRANSCRIBE_MODELS, s.transcribeModels.gemini, '轉錄模型')}
-          </label>
-          <div class="field">
-            <span>測試 key</span>
-            <div class="form-actions">
-              <button class="ghost" id="btn-ping-gemini" type="button">測試 Gemini</button>
-              <span class="muted small" id="ping-gemini-result"></span>
-            </div>
-          </div>
-        </div>
-      `;
-    }
-    return `
-      <label class="field">
-        <span>Typeless API key ${s.typelessKeySet ? `<em class="ok">已設定 ${escapeHtml(s.typelessKeyHint)}</em>` : '<em class="warn">尚未設定</em>'}</span>
-        <input id="typeless-key" type="password" autocomplete="off" placeholder="${s.typelessKeySet ? '要換再填，留白代表不變' : 'tls_sk_...'}" />
-      </label>
-      <label class="field">
-        <span>轉錄模型</span>
-        <select id="typeless-model">
-          ${TYPELESS_MODELS.map(
-            (m) =>
-              `<option value="${m.id}" ${m.id === s.transcribeModels.typeless ? 'selected' : ''}>${m.label}</option>`,
-          ).join('')}
-        </select>
-      </label>
-    `;
+  function keyState(set: boolean, hint: string, source?: string): string {
+    return set
+      ? `<span class="key-state ok">已設定 <b>${escapeHtml(hint)}</b>${source ? `<small>${escapeHtml(source)}</small>` : ''}</span>`
+      : '<span class="key-state missing">尚未設定</span>';
   }
 
-  function transcribeNote(s: SettingsView): string {
+  function row(label: string, control: string, hint = '', forId = ''): string {
+    const name = forId ? `<label class="r-label" for="${forId}">${label}</label>` : `<span class="r-label">${label}</span>`;
+    return `<div class="r"><div class="r-name">${name}${hint ? `<small>${hint}</small>` : ''}</div><div class="r-ctl">${control}</div></div>`;
+  }
+
+  function transcriptionRows(s: SettingsView): string {
     if (s.transcriber === 'gemini') {
-      return `<p class="muted small">Gemini 有免費額度，但每日請求數與每分鐘次數以 Google 官方公告為準。免費層的內容可能被用於改善服務；敏感會議請改用付費 key。Key 申請：<a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Google AI Studio</a>。</p>`;
+      return [
+        row(
+          'Gemini API key',
+          `${keyState(s.geminiKeySet, s.geminiKeyHint)}<input id="gemini-key" type="password" autocomplete="off" placeholder="${s.geminiKeySet ? '要換再貼，留白代表不變' : '貼上 AIza… 開頭的 key'}" />`,
+          '到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Google AI Studio</a> 申請；免費層內容可能被用於改善服務',
+          'gemini-key',
+        ),
+        row('轉錄模型', modelPicker('gemini-model', GEMINI_TRANSCRIBE_MODELS, s.transcribeModels.gemini, '轉錄模型')),
+        row(
+          '測試連線',
+          `<span class="ping-out" id="ping-gemini-result" aria-live="polite"></span><button class="btn" id="btn-ping-gemini" type="button">測試 Gemini</button>`,
+          '用畫面上的 key 與模型，不必先儲存',
+        ),
+      ].join('');
     }
-    return `<p class="muted small">Key 申請：<a href="https://docs.typelessapi.com" target="_blank" rel="noreferrer">docs.typelessapi.com</a>。計價 Lite $0.25／小時、Pro $0.50、Max $2.50。</p>`;
+    return [
+      row(
+        'Typeless API key',
+        `${keyState(s.typelessKeySet, s.typelessKeyHint)}<input id="typeless-key" type="password" autocomplete="off" placeholder="${s.typelessKeySet ? '要換再貼，留白代表不變' : '貼上 tls_sk_… 開頭的 key'}" />`,
+        '到 <a href="https://docs.typelessapi.com" target="_blank" rel="noreferrer">docs.typelessapi.com</a> 申請；Lite $0.25／小時、Pro $0.50、Max $2.50',
+        'typeless-key',
+      ),
+      row(
+        '轉錄模型',
+        `<select id="typeless-model">${TYPELESS_MODELS.map(
+          (m) => `<option value="${m.id}" ${m.id === s.transcribeModels.typeless ? 'selected' : ''}>${m.label}</option>`,
+        ).join('')}</select>`,
+        '',
+        'typeless-model',
+      ),
+    ].join('');
+  }
+
+  let dirty = new Set<string>();
+  let saved = initial;
+
+  function paintSaveBar(): void {
+    const bar = root.querySelector<HTMLElement>('#save-bar');
+    if (!bar) return;
+    const note = q<HTMLElement>(bar, '#dirty-note');
+    bar.classList.toggle('dirty', dirty.size > 0);
+    note.textContent = dirty.size ? `有未儲存的變更：${[...dirty].join('、')}` : '設定都已儲存';
+    q<HTMLButtonElement>(bar, '#btn-revert').disabled = dirty.size === 0;
   }
 
   function paint(): void {
     const s = current;
     const segmentHint =
-      s.transcriber === 'gemini'
-        ? '自動切段秒數（Gemini 單次音訊上限約 20 MB，建議 120–280）'
-        : '自動切段秒數（Typeless 單次上限 300 秒，建議 120–240）';
+      s.transcriber === 'gemini' ? 'Gemini 一段上限約 280 秒，建議 120–280' : 'Typeless 一段上限 300 秒，建議 120–240';
     root.innerHTML = `
-      <h1>設定</h1>
-      <p class="muted">Key 只存在這台電腦的 <code>server/.data/settings.json</code>，不會送到瀏覽器以外的地方。</p>
+      <div class="toolbar"><span class="crumb"><b>設定</b></span></div>
+      <div class="scroll">
+        <div class="sheet settings-sheet">
+          <h1>設定</h1>
+          <p class="lead">API key 只存在這台電腦的 <code>server/.data/settings.json</code>，不會送到瀏覽器。</p>
 
-      <section class="card">
-        <h2>轉錄（語音 → 逐字稿）</h2>
-        <div class="form">
-          <label class="field">
-            <span>轉錄引擎</span>
-            <select id="transcriber">
-              <option value="gemini" ${s.transcriber === 'gemini' ? 'selected' : ''}>Gemini（免費額度）</option>
-              <option value="typeless" ${s.transcriber === 'typeless' ? 'selected' : ''}>Typeless（付費，中文品質好）</option>
-            </select>
-          </label>
-          ${transcriptionFields(s)}
-          <div class="row">
-            <label class="field">
-              <span>語言提示</span>
-              <input id="language" type="text" value="${escapeHtml(s.language)}" placeholder="zh" />
-            </label>
-            <label class="field">
-              <span>${segmentHint}</span>
-              <input id="segment" type="number" min="60" max="280" value="${s.autoSegmentSeconds}" />
-            </label>
+          <h2 class="group-title">轉錄（語音 → 逐字稿）</h2>
+          <div class="group">
+            ${row(
+              '轉錄引擎',
+              `<select id="transcriber">
+                <option value="gemini" ${s.transcriber === 'gemini' ? 'selected' : ''}>Gemini（免費額度）</option>
+                <option value="typeless" ${s.transcriber === 'typeless' ? 'selected' : ''}>Typeless（付費，中文品質好）</option>
+              </select>`,
+              '',
+              'transcriber',
+            )}
+            ${transcriptionRows(s)}
           </div>
-          <label class="check">
-            <input id="keep-audio" type="checkbox" ${s.keepAudio ? 'checked' : ''} />
-            <span>保留原始錄音（<code>audio/mic.wav</code>，1 小時約 110 MB）</span>
-          </label>
-        </div>
-        ${transcribeNote(s)}
-      </section>
 
-      <section class="card">
-        <h2>摘要用的 LLM</h2>
-        <div class="form">
-          <div class="row">
-            <label class="field">
-              <span>供應商</span>
-              <select id="provider">
+          <h2 class="group-title">錄音</h2>
+          <div class="group">
+            ${row('自動切段', `<input id="segment" class="num" type="number" min="60" max="280" value="${s.autoSegmentSeconds}" /><span class="unit">秒</span>`, segmentHint, 'segment')}
+            ${row('語言提示', `<input id="language" class="num" type="text" value="${escapeHtml(s.language)}" placeholder="zh" />`, '例如 zh、en；給轉錄模型參考', 'language')}
+            ${row('保留原始錄音', `<input id="keep-audio" class="switch" type="checkbox" role="switch" ${s.keepAudio ? 'checked' : ''} />`, '<code>audio/mic.wav</code>，1 小時約 110 MB', 'keep-audio')}
+          </div>
+
+          <h2 class="group-title">摘要用的 LLM</h2>
+          <div class="group">
+            ${row(
+              '供應商',
+              `<select id="provider">
                 ${(['anthropic', 'openai', 'gemini'] as LlmProvider[])
                   .map(
                     (p) =>
                       `<option value="${p}" ${p === s.llmProvider ? 'selected' : ''}>${p === 'anthropic' ? 'Anthropic Claude' : p === 'openai' ? 'OpenAI' : 'Google Gemini'}</option>`,
                   )
                   .join('')}
-              </select>
-            </label>
-            <label class="field">
-              <span>模型</span>
-              ${modelPicker('llm-model', LLM_MODEL_OPTIONS[s.llmProvider], s.llmModel, '摘要模型')}
-            </label>
+              </select>`,
+              '',
+              'provider',
+            )}
+            ${row('模型', modelPicker('llm-model', LLM_MODEL_OPTIONS[s.llmProvider], s.llmModel, '摘要模型'))}
+            ${row(
+              'API key',
+              `${keyState(s.llmKeys[s.llmProvider].set, s.llmKeys[s.llmProvider].hint)}<input id="llm-key" type="password" autocomplete="off" placeholder="${s.llmKeys[s.llmProvider].set ? '要換再貼，留白代表不變' : '貼上 API key'}" />`,
+              s.llmProvider === 'gemini' ? '與轉錄共用：上面填過 Gemini key 的話可以留白' : '',
+              'llm-key',
+            )}
+            ${row(
+              '測試連線',
+              `<span class="ping-out" id="ping-result" aria-live="polite"></span><button class="btn" id="btn-ping" type="button">測試連線</button>`,
+              '用畫面上的選擇，不必先儲存',
+            )}
           </div>
-          <label class="field">
-            <span>API key ${s.llmKeys[s.llmProvider].set ? `<em class="ok">已設定 ${escapeHtml(s.llmKeys[s.llmProvider].hint)}</em>` : '<em class="warn">尚未設定</em>'}</span>
-            <input id="llm-key" type="password" autocomplete="off" placeholder="${s.llmKeys[s.llmProvider].set ? '要換再填' : '貼上 API key'}" />
-          </label>
-          ${
-            s.llmProvider === 'gemini'
-              ? '<p class="muted small">Gemini key 與轉錄共用：上方 Gemini 欄位填過的話，這裡可以留白。</p>'
-              : ''
-          }
-          <div class="form-actions">
-            <button class="ghost" id="btn-ping" type="button">測試連線</button>
-            <span class="muted small" id="ping-result"></span>
+
+          <h2 class="group-title">資料</h2>
+          <div class="group">
+            ${row('會議資料夾', `<input id="meetings-dir" type="text" value="${escapeHtml(s.meetingsDir)}" />`, '可以填相對專案根目錄的路徑，或完整路徑（例如 D:\\會議紀錄）', 'meetings-dir')}
+            ${row('目前位置', `<code class="path">${escapeHtml(s.meetingsPath)}</code>`, '每場會議一個資料夾：meeting.json、transcript.md、notes.md、minutes.md、images/、reference/')}
           </div>
         </div>
-      </section>
-
-      <section class="card">
-        <h2>資料</h2>
-        <div class="form">
-          <label class="field">
-            <span>會議資料夾（相對專案根目錄）</span>
-            <input id="meetings-dir" type="text" value="${escapeHtml(s.meetingsDir)}" />
-          </label>
-          <p class="muted small">目前位置：<code>${escapeHtml(s.meetingsPath)}</code>。每場會議一個資料夾：<code>meeting.json</code>、<code>transcript.md</code>、<code>notes.md</code>、<code>minutes.md</code>、<code>reference/</code>。</p>
-        </div>
-      </section>
-
-      <div class="form-actions">
-        <button class="primary" id="btn-save" type="button">儲存設定</button>
+      </div>
+      <div class="save-bar" id="save-bar">
+        <span class="dirty-note" id="dirty-note" aria-live="polite"></span>
+        <button class="btn" id="btn-revert" type="button">還原</button>
+        <button class="btn primary" id="btn-save" type="button">儲存設定</button>
       </div>
     `;
+    paintSaveBar();
 
     q<HTMLSelectElement>(root, '#transcriber').addEventListener('change', (event) => {
       const next = (event.target as HTMLSelectElement).value as TranscriberKind;
@@ -199,6 +206,11 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
     });
 
     q<HTMLButtonElement>(root, '#btn-save').addEventListener('click', () => void save());
+    q<HTMLButtonElement>(root, '#btn-revert').addEventListener('click', () => {
+      current = saved;
+      dirty = new Set();
+      paint();
+    });
     q<HTMLButtonElement>(root, '#btn-ping').addEventListener('click', () => void ping());
     const geminiBtn = root.querySelector<HTMLButtonElement>('#btn-ping-gemini');
     if (geminiBtn) geminiBtn.addEventListener('click', () => void pingGeminiKey());
@@ -235,6 +247,8 @@ export function renderSettings(initial: SettingsView, onSaved: (next: SettingsVi
 
       const next = await saveSettings(payload);
       current = next;
+      saved = next;
+      dirty = new Set();
       onSaved(next);
       toast('已儲存');
       paint();

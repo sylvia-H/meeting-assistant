@@ -3,7 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
     <title>會議助手</title>
+    <script>
+      // 第一次繪製前就決定深淺色，深色使用者才不會看到一閃白底（之後由 src/ui/theme.ts 接手）
+      (function () {
+        var mode = localStorage.getItem('meeting-assistant.theme');
+        var dark = mode === 'dark' || (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

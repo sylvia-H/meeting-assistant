@@ -61,3 +61,8 @@ export function setBusy(button: HTMLButtonElement, busy: boolean, busyLabel = '�
 export function copyText(text: string): Promise<void> {
   return navigator.clipboard.writeText(text);
 }
+
+/** 任何頁面改到會議清單（建立、改名、狀態變化、刪除）時發這個事件，側邊欄就會重抓 */
+export function meetingsChanged(): void {
+  window.dispatchEvent(new Event('meetings:changed'));
+}

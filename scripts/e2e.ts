@@ -104,7 +104,12 @@ const created = await (
   await fetch(`${BASE}/api/meetings`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title: '瀏覽器測試會議', startedAt: new Date().toISOString(), agenda: '驗證真麥克風收音' }),
+    body: JSON.stringify({
+      title: '瀏覽器測試會議',
+      startedAt: new Date().toISOString(),
+      agenda: '驗證真麥克風收音',
+      attendees: '王小明（PM）、Amy（廠商 IT）',
+    }),
   })
 ).json() as { meeting: { id: string } };
 const id = created.meeting.id;
@@ -200,7 +205,7 @@ await until(
   '設定頁載入',
 );
 const keyLeak = await cdp.eval<boolean>(`document.body.textContent.includes('tls_sk_e2e_test')`);
-const keyHint = await cdp.eval<string>(`document.querySelector('#typeless-key')?.closest('.field')?.textContent ?? ''`);
+const keyHint = await cdp.eval<string>(`document.querySelector('#typeless-key')?.closest('.r')?.textContent ?? ''`);
 check(!keyLeak, '設定頁不會把完整 API key 送到瀏覽器');
 check(keyHint.includes('已設定'), '設定頁顯示「已設定」提示');
 await shot('settings');
@@ -248,6 +253,8 @@ await until(
   '會議標題載入',
 );
 check(true, '錄音頁載入，標題正確');
+const people = await cdp.eval<string>(`document.querySelector('#meeting-people')?.textContent ?? ''`);
+check(people.includes('王小明') && people.includes('PM') && people.includes('廠商 IT'), `標題下顯示與會者與身分（${people.replace(/\s+/g, ' ').trim()}）`);
 
 // 開始錄音（真的呼叫 getUserMedia + AudioWorklet）
 await click('#btn-start');
@@ -315,7 +322,8 @@ const stillEdited = await cdp.eval<string>(
 );
 check(stillEdited.includes('校正：報價改寄給 Amy'), '之後的畫面更新沒有把修改洗掉');
 
-const liveNotes = await cdp.eval<number>(`document.querySelectorAll('#notes .note').length`);
+// 環節（# 名稱）現在是小標 .sec，其他筆記是 .note
+const liveNotes = await cdp.eval<number>(`document.querySelectorAll('#notes .note, #notes .sec').length`);
 check(liveNotes === 3, `錄音頁出現三則筆記（實際 ${liveNotes}）`);
 
 // 貼上截圖：模擬 Ctrl+V 一張 2400×1200 的 PNG，要縮到長邊 1568、附在輸入框旁，送出後變成筆記
@@ -431,6 +439,66 @@ check(minutes.includes('收到 1 張截圖'), '產生紀錄時截圖有送到 LL
 const resultShots = await cdp.eval<number>(`document.querySelectorAll('#notes .note-shot img').length`);
 check(resultShots === 1, `紀錄頁的筆記也看得到截圖（${resultShots} 張）`);
 
+// 會後校正逐字稿：紀錄頁右欄切到「逐字稿」直接改，存回去，並提醒可以重新產生紀錄
+await cdp.eval(`document.querySelector('#tab-ctl [data-tab="transcript"]').click()`);
+await cdp.eval(`(() => {
+  const area = document.querySelector('#transcript textarea.seg-text');
+  area.focus();
+  area.value = area.value + '（會後補充：Amy 確認週五寄出）';
+  area.dispatchEvent(new Event('input', { bubbles: true }));
+  area.blur();
+})()`);
+await until(
+  async () => {
+    const saved = (await (await fetch(`${BASE}/api/meetings/${id}`)).json()) as {
+      meeting: { segments: { transcript: string; editedAt?: string }[] };
+    };
+    return saved.meeting.segments.some((s) => s.editedAt && s.transcript.includes('會後補充：Amy 確認週五寄出'));
+  },
+  10000,
+  '會後校正存回伺服器',
+);
+check(true, '會議結束後在紀錄頁改的逐字稿存回 meeting.json');
+await until(
+  async () => cdp.eval<boolean>(`!!document.querySelector('.gen-line .stale')`),
+  5000,
+  '提醒重新產生',
+);
+check(true, '紀錄產生後改過逐字稿，會提醒可以重新產生');
+
+// 會後修改筆記：改內容、換類型、補一則會後想法，都要存回 meeting.json
+await cdp.eval(`document.querySelector('#tab-ctl [data-tab="notes"]').click()`);
+await cdp.eval(`(() => {
+  const row = document.querySelector('#notes .note.editable');
+  const area = row.querySelector('textarea.note-edit');
+  area.focus();
+  area.value = '會後改寫：報價改由 Amy 週五寄出';
+  area.dispatchEvent(new Event('input', { bubbles: true }));
+  area.blur();
+  const select = row.querySelector('select.tag-select');
+  select.value = 'decision';
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+})()`);
+await cdp.eval(`(() => {
+  const input = document.querySelector('#post-input');
+  input.value = '* 下次會議前先把報價版本對齊';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  document.querySelector('#post-composer').requestSubmit();
+})()`);
+await until(
+  async () => {
+    const saved = (await (await fetch(`${BASE}/api/meetings/${id}`)).json()) as {
+      meeting: { notes: { kind: string; text: string; postMeeting?: boolean; editedAt?: string }[] };
+    };
+    const edited = saved.meeting.notes.some((n) => n.editedAt && n.kind === 'decision' && n.text === '會後改寫：報價改由 Amy 週五寄出');
+    const added = saved.meeting.notes.some((n) => n.postMeeting && n.kind === 'idea' && n.text === '下次會議前先把報價版本對齊');
+    return edited && added;
+  },
+  10000,
+  '會後筆記存回伺服器',
+);
+check(true, '會後可以改筆記內容與類型，也能補一則會後想法（標成會後補充）');
+
 await shot('result');
 
 // 音訊真的從瀏覽器送到伺服器
@@ -442,7 +510,7 @@ const meetingJson = JSON.parse(readFileSync(path.join(meetingsDir, id, 'meeting.
   segments: { transcript: string }[];
   notes: unknown[];
 };
-check(meetingJson.notes.length === 4, `meeting.json 有三則筆記＋一則截圖（實際 ${meetingJson.notes.length}）`);
+check(meetingJson.notes.length === 5, `meeting.json 有三則筆記＋一則截圖＋一則會後補充（實際 ${meetingJson.notes.length}）`);
 
 await sleep(300);
 if (cdp.consoleErrors.length) {
